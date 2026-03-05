@@ -1,4 +1,5 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
@@ -54,6 +55,43 @@ class ProviderService(db.Model):
 with app.app_context():
     db.create_all()
 
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    existing_user = User.query.filter_by(email=data['email']).first()
+    if existing_user:
+        return jsonify({"error": "Email already registered"}), 400
+    hashed_password = generate_password_hash(data['password'])
+    
+    new_user = User(
+        name=data['name'],
+        email=data['email'],
+        passwordHash=hashed_password,
+        role=data.get('role', 'Student') 
+    )
+    
+    db.session.add(new_user)
+    db.session.commit()
+    
+    return jsonify({"message": "User successfully registered!"}), 201
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(email=data['email']).first()
+    
+    if user and check_password_hash(user.passwordHash, data['password']):
+        return jsonify({
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "role": user.role
+            }
+        }), 200
+    else:
+        return jsonify({"error": "Invalid email or password"}), 401
+    
 @app.route('/api/services', methods=['GET'])
 def get_services():
     return jsonify({"status": "Database is ready for BookEase"})
