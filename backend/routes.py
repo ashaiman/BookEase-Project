@@ -243,4 +243,6 @@ def cancel_booking(current_user, booking_id):
     db.session.commit()
     return jsonify(booking.to_dict())
 
-
+@app.route('/')
+def home():
+    return 'BookEase is running!'
