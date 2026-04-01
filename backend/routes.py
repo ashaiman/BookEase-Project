@@ -2,11 +2,29 @@ from flask import request, jsonify
 from app import app, db
 from datetime import datetime, timedelta
 from functools import wraps
+from apscheduler.schedulers.background import BackgroundScheduler
 import jwt
 import os
 
 # read secret from environment (loaded by app.py)
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+
+def clean_exp_reservations():
+    with app.app_context():
+        from models import Booking
+        now = datetime.utcnow()
+        expired = Booking.query.filter(
+            Booking.status == 'reserved',
+            Booking.reserved_until < now
+        ).all()
+        for booking in expired:
+            db.session.delete(booking)
+        db.session.commit()
+        print(f'Cleaned up {len(expired)} expired reservations.')
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(clean_exp_reservations, 'interval', minutes=5)
+scheduler.start()
 
 def token_required(f):
     @wraps(f)
@@ -29,6 +47,17 @@ def token_required(f):
 def register():
     from models import User
     data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('username'):
+        return jsonify({'message': 'Username is required'}), 400
+    if not data.get('email'):
+        return jsonify({'message': 'Email is required'}), 400
+    if not data.get('password'):
+        return jsonify({'message': 'Password is required'}), 400
+    if not data.get('role') and data['role'] not in ['customer', 'provider']:
+        return jsonify({'message': 'Role must be customer or provider'}), 400
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'Email already exists'}), 400
     if User.query.filter_by(username=data['username']).first():
@@ -66,6 +95,12 @@ def create_service(current_user):
         return jsonify({'message': 'Only providers can create services'}), 403
 
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('name'):
+        return jsonify({'message': 'Service name is required'}), 400
+    if not data.get('duration'):
+        return jsonify({'message': 'Duration is required'}), 400
     service = Service(
         name=data['name'],
         description=data.get('description'),
@@ -128,6 +163,15 @@ def get_bookings(current_user):
 def create_booking(current_user):
     from models import Service, User, Booking, ProviderService
     data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('service_id'):
+        return jsonify({'message': 'Please select a service'}), 400
+    if not data.get('provider_id'):
+        return jsonify({'message': 'PLease select a provider'}), 400
+    if not data.get('start_time'):
+        return jsonify({'message': 'service_id is required'}), 400
     service = Service.query.get_or_404(data['service_id'])
     provider = User.query.get_or_404(data['provider_id'])
 
@@ -174,6 +218,17 @@ def create_booking(current_user):
 def reserve_booking(current_user, booking_id):
     from models import Service, User, Booking
     data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('service_id'):
+        return jsonify({'message': 'Please select a service'}), 400
+    if not data.get('provider_id'):
+        return jsonify({'message': 'PLease select a provider'}), 400
+    if not data.get('start_time'):
+        return jsonify({'message': 'service_id is required'}), 400
+    service = Service.query.get_or_404(data['service_id'])
+    provider = User.query.get_or_404(data['provider_id'])
     service = Service.query.get_or_404(data['service_id'])
     provider = User.query.get_or_404(data['provider_id'])
 
@@ -242,6 +297,53 @@ def cancel_booking(current_user, booking_id):
     booking.status = 'cancelled'
     db.session.commit()
     return jsonify(booking.to_dict())
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        from models import User
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+        try:
+            token = token.split(' ')[1]
+            data = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            current_user = User.query.get(data['user_id'])
+        except:
+            return jsonify({'message': 'Token is invalid'}), 401
+        if current_user.role != 'admin':
+            return jsonify({'message': 'Admin access required'}),401
+        return f(current_user, *args, **kwargs)
+    return decorated 
+
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def get_all_users(current_user):
+    from models import User
+    users = User.query.all()
+    return jsonify([user.to_dict() for user in users]), 200
+
+@app.route('/api/admin/bookings', methods=['GET'])
+@admin_required
+def get_all_bookings(current_user):
+    from models import Booking
+    bookings = Booking.query.all()
+    return jsonify([booking.to_dict() for booking in bookings]), 200
+
+@app.route('/api/admin/users/<int:user_id>/roles', methods=['PUT'])
+@admin_required
+def update_user_role(current_user, user_id):
+    from models import User 
+    user = User.query.get_or_404(user_id)
+    data = request.get_json()
+    newRole = data.get('role')
+
+    if newRole not in ['customer', 'provider', 'admin']:
+        return jsonify({'message': 'Invalid role.'})
+    
+    user.role = newRole
+    db.session.commit()
+    return jsonify({'message': f'User role updated to {newRole}', 'user': user.to_dict()}), 200
 
 @app.route('/')
 def home():
