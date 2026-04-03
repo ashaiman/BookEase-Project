@@ -84,8 +84,13 @@ def login():
 @app.route('/api/services', methods=['GET'])
 def get_services():
     from models import Service
-    services = Service.query.all()
+    category = request.args.get('category')
+    if category:
+        services = Service.query.filter_by(category=category).all()
+    else:
+        services = Service.query.all()
     return jsonify([service.to_dict() for service in services])
+
 
 @app.route('/api/services', methods=['POST'])
 @token_required
@@ -316,6 +321,33 @@ def admin_required(f):
         return f(current_user, *args, **kwargs)
     return decorated 
 
+@app.route('/api/bookings/history', methods=['GET'])
+@token_required
+def booking_history(current_user):
+    from models import Booking
+    now = datetime.utcnow().isoformat()
+    if current_user.role == 'customer':
+        bookings = Booking.query.filter(Booking.user_id == current_user.id,
+            Booking.end_time < now
+        ).all()
+    else:
+        bookings = Booking.query.filter(Booking.provider_id == current_user.id, 
+            Booking.end_time < now).all()
+    return jsonify([booking.to_dict() for booking in bookings]), 200
+
+@app.route('/api/bookings/upcoming', methods=['GET'])
+@token_required
+def upcoming_sessions(current_user):
+    from models import Booking
+    now = datetime.utcnow().isoformat()
+    if current_user.role == 'customer':
+        bookings = Booking.query.filter(Booking.user_id == current_user.id, 
+            Booking.start_time > now, Booking.status == 'confirmed').all()
+    else:
+        bookings = Booking.query.filter(Booking.provider_id == current_user.id, 
+            Booking.start_time > now, Booking.status == 'confirmed').all()
+    return jsonify([booking.to_dict() for booking in bookings]), 200
+
 @app.route('/api/admin/users', methods=['GET'])
 @admin_required
 def get_all_users(current_user):
@@ -344,6 +376,76 @@ def update_user_role(current_user, user_id):
     user.role = newRole
     db.session.commit()
     return jsonify({'message': f'User role updated to {newRole}', 'user': user.to_dict()}), 200
+
+@app.route('/api/profile', methods=['GET'])
+@token_required
+def get_profile(current_user):
+    return jsonify(current_user.to_dict()), 200
+
+@app.route('/api/profile', methods=['PUT'])
+@token_required
+def edit_profile(current_user):
+    from models import User
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400    
+    if 'username' in data:
+        existing = User.query.filter_by(username=data['username']).first()
+        if existing and existing.id != current_user.id:
+            return jsonify({'message': 'Username is already taken'}), 400
+        current_user.username = data['username']
+    
+    if 'bio' in data:
+        current_user.bio = data['bio']
+    if 'image' in data:
+        current_user.image = data['image']
+    db.session.commit()
+    return jsonify({'message': 'Profile successfully updated!', 'user': current_user.to_dict()})
+
+@app.route('/api/feedback', methods=['POST'])
+@token_required
+def create_feedback(current_user):
+    from models import Feedback, Booking
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('booking_id'):
+        return jsonify({'message': 'Booking id is required'}), 400
+    if not data.get('service_id'):
+        return jsonify({'message': 'Service id is required'}), 400
+    if not data.get('rating'):
+        return jsonify({'message': 'Rating is required'}), 400
+    if not isinstance(data['rating'], int) or data['rating'] < 1 or data['rating'] > 5:
+        return jsonify({'message': 'Rating must be between 1 and 5'}), 400
+    
+    booking = Booking.query.get_or_404(data['booking_id'])
+    if booking.user_id != current_user.id:
+        return jsonify({'message': 'You can only leave feedback for your own bookings'}), 400
+    if booking.status != 'confirmed':
+        return jsonify({'message': 'You can only leave feedback for confirmed bookings'}), 400
+    
+    existing = Feedback.query.filter_by(booking_id=data['booking_id'], user_id=current_user.id).first()
+    if existing:
+        return jsonify({'message': 'You have already left feedback for this booking'})
+    
+    feedback = Feedback(
+        booking_id=data['booking_id'],
+        user_id=current_user.id,
+        service_id=data['service_id'],
+        rating=data['rating'],
+        comment=data.get('comment')
+    )
+    db.session.add(feedback)
+    db.session.commit()
+    return jsonify(feedback.to_dict()), 201
+
+@app.route('/api/feedback/service/<int:service_id>', methods=['GET'])
+def get_feedback(service_id):
+    from models import Feedback
+    feedback = Feedback.query.filter_by(service_id=service_id).all()
+    return jsonify([f.to_dict() for f in feedback]), 200
 
 @app.route('/')
 def home():

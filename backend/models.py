@@ -12,6 +12,8 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='customer')  # customer or provider
+    bio = db.Column(db.Text, nullable=True)
+    image = db.Column(db.String(255), nullable=True)
 
     bookings = db.relationship('Booking', foreign_keys='Booking.user_id', backref='user', lazy=True)
     provider_bookings = db.relationship('Booking', foreign_keys='Booking.provider_id', backref='provider', lazy=True)
@@ -37,6 +39,7 @@ class Service(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     duration = db.Column(db.Integer, nullable=False)  # minutes
+    category = db.Column(db.String(50), nullable=True)
 
     bookings = db.relationship('Booking', backref='service', lazy=True)
     provider_services = db.relationship('ProviderService', backref='service', lazy=True)
@@ -46,7 +49,8 @@ class Service(db.Model):
             'id': self.id,
             'name': self.name,
             'description': self.description,
-            'duration': self.duration
+            'duration': self.duration,
+            'category' : self.category
         }
 
 class Booking(db.Model):
@@ -89,3 +93,26 @@ class ProviderService(db.Model):
             'provider_id': self.provider_id,
             'service_id': self.service_id
         }
+    
+class Feedback(db.Model):
+    __tablename__= 'feedback'
+    id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('booking.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False )
+    rating = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 
+            'booking_id': self.booking_id,
+            'user_id': self.user_id,
+            'service_id': self.service_id,
+            'rating': self.rating,
+            'comment': self.comment,
+            'created_at': self.created_at.isoformat()
+
+        }
+    
