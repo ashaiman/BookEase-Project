@@ -116,3 +116,25 @@ class Feedback(db.Model):
 
         }
     
+class ProviderSchedule(db.Model):
+    __tablename__ = 'provider_schedule'
+    id = db.Column(db.Integer, primary_key=True)
+    provider_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)
+    start_time = db.Column(db.String(5), nullable=False)
+    end_time = db.Column(db.String(5), nullable=False)
+    max_attendees = db.Column(db.Integer, nullable=False, default = 1)
+    is_active = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return {
+            'id': self.id,
+            'provider_id': self.provider_id,
+            'day_of_week': self.day_of_week,
+            'start_time': self.start_time,
+            'end_time': self.end_time,
+            'max_attendees': self.max_attendees,
+            'is_active': self.is_active
+
+        }

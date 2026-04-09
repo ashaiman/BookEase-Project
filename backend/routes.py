@@ -447,6 +447,81 @@ def get_feedback(service_id):
     feedback = Feedback.query.filter_by(service_id=service_id).all()
     return jsonify([f.to_dict() for f in feedback]), 200
 
+@app.route('/api/schedule', methods=['GET'])
+@token_required
+def get_schedule(current_user):
+    from models import ProviderSchedule
+    if current_user.role != 'provider':
+        return jsonify({'message': 'Only providers can view their schedule'}), 403
+    
+    schedule = ProviderSchedule.query.filter_by(provider_id = current_user.id, is_active=True).all()
+    return jsonify([slot.to_dict() for slot in schedule]), 200
+
+@app.route('/api/schedule', methods=['POST'])
+@token_required
+def create_schedule(current_user):
+    from models import ProviderSchedule
+    if current_user.role != 'provider':
+        return jsonify({'message': 'Only providers can set their schedule'}), 403
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if data.get('day_of_week') is None:
+        return jsonify({'message': 'day_of_week is required (0=Monday, 6=Sunday)'}), 400
+    if not data.get('start_time'):
+        return jsonify({'message': 'Start time is required (format: 09:00)'}), 400
+    if not data.get('end_time'):
+        return jsonify({'message': 'End time is required (format: 17:00)'}), 400
+    
+    slot = ProviderSchedule(provider_id=current_user.id, day_of_week=data['day_of_week'],
+        start_time=data['start_time'], end_time=data['end_time'], max_attendees=data.get('max_attendees', 1))
+    db.session.add(slot)
+    db.session.commit()
+    return jsonify(slot.to_dict()), 201
+
+@app.route('/api/schedule/<int:slot_id>', methods=['PUT'])
+@token_required
+def update_schedule(current_user, slot_id):
+    from models import ProviderSchedule
+    slot = ProviderSchedule.query.get_or_404(slot_id)
+    if slot.provider_id != current_user.id:
+        return jsonify({'message': 'Unauthorized'}), 403
+    
+    data = request.get_json()
+    if 'day_of_week' in data:
+        slot.day_of_week = data['day_of_week']
+    if 'start_time' in data:
+        slot.start_time = data['start_time']
+    if 'end_time' in data:
+        slot.end_time = data['end_time']
+    if 'is_active' in data:
+        slot.is_active = data['is_active']
+    db.session.commit()
+    return jsonify(slot.to_dict()), 200
+
+@app.route('/api/schedule/<int:slot_id>', methods=['DELETE'])
+@token_required
+def delete_schedule(current_user, slot_id):
+    from models import ProviderSchedule
+    slot = ProviderSchedule.query.get_or_404(slot_id)
+
+    if slot.provider_id != current_user.id:
+        return jsonify({'message': 'Unauthorized'}), 403
+    
+    slot.is_active = False
+    db.session.commit()
+    return jsonify({'message': 'Schedule slot removed'}), 200
+
+@app.route('/api/schedule/provider/<int:provider_id>', methods=['GET'])
+def get_provider_schedule(provider_id):
+    from models import ProviderSchedule
+    schedule = ProviderSchedule.query.filter_by(provider_id=provider_id, is_active=True).all()
+    return jsonify([slot.to_dict() for slot in schedule]), 200
+
+    
+
+
 @app.route('/')
 def home():
     return 'BookEase is running!'
