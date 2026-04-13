@@ -138,3 +138,19 @@ class ProviderSchedule(db.Model):
             'is_active': self.is_active
 
         }
+class CancellationPolicy(db.Model):
+    __tablename__ = 'cancellation_policy'
+    id = db.Column(db.Integer, primary_key=True)
+    service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
+    hours_before = db.Column(db.Integer, nullable=False)
+    penalty = db.Column(db.Integer, nullable=False, default=0)
+    description = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id' : self.id,
+            'service_id': self.service_id,
+            'hours_before': self.hours_before,
+            'penalty': self.penalty,
+            'description': self.description
+        }  

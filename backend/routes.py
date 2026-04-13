@@ -294,11 +294,23 @@ def confirm_booking(current_user, booking_id):
 @app.route('/api/bookings/<int:booking_id>/cancel', methods=['PUT'])
 @token_required
 def cancel_booking(current_user, booking_id):
-    from models import Booking
+    from models import Booking, CancellationPolicy
     booking = Booking.query.get_or_404(booking_id)
     # only the customer who made it or the provider may cancel
     if booking.user_id != current_user.id and booking.provider_id != current_user.id:
         return jsonify({'message': 'Unauthorized'}), 403
+    
+    policy = CancellationPolicy.query.filter_by(service_id=booking.service_id).first()
+    if policy:
+        now = datetime.utcnow()
+        start = booking.start_time if hasattr(booking.start_time, 'hour') else datetime.fromisoformat(booking.start_time)
+        hours_until = (start - now).total_seconds() / 3600
+
+        if hours_until < policy.hours_before:
+            return jsonify({'message': f'Cannot cancel — policy requires {policy.hours_before} hours notice',
+                'penalty_percent': policy.penalty_percent,
+                'description': policy.description}), 400
+        
     booking.status = 'cancelled'
     db.session.commit()
     return jsonify(booking.to_dict())
@@ -519,9 +531,102 @@ def get_provider_schedule(provider_id):
     schedule = ProviderSchedule.query.filter_by(provider_id=provider_id, is_active=True).all()
     return jsonify([slot.to_dict() for slot in schedule]), 200
 
+@app.route('/api/availability/<int:provider_id>', methods=['GET'])
+def get_availability(provider_id):
+    from models import ProviderSchedule, Booking
+    from datetime import date, timedelta
+
+    start_date = request.args.get('start_date', date.today().isoformat())
+    end_date = request.args.get('end_date', (date.today() + timedelta(days=7)).isoformat())
+    schedule = ProviderSchedule.query.filter_by(provider_id=provider_id, is_active=True).all()
     
+    if provider_id != 'provider':
+        return jsonify({'message': 'This is not a provider'})
+    if not schedule:
+        return jsonify({'message': 'Provider has no schedule set'}), 404
+    
+    existing = Booking.query.filter(
+        Booking.provider_id == provider_id, 
+        Booking.status.in_(['confirmed', 'reserved']),
+        Booking.start_time >= start_date,
+        Booking.start_time <= end_date
+    ).all()
 
+    booked = [{
+        'start_time': b.start_time.isoformat() if hasattr(b.start_time, 'isoformat') else b.start_time, 
+        'end_time': b.end_time.isoformat() if hasattr(b.end_time, 'isoformat') else b.end_time
+    }for b in existing]
 
+    available = []
+    current = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+
+    while current <= end:
+        day_of_week = current.weekday()
+        daySchedule = [s for s in schedule if s.day_of_week == day_of_week]
+
+        if daySchedule:
+            for slot in daySchedule:
+                available.append({
+                    'date': current.isoformat(),
+                    'dayName': slot.to_dict()['dayName'],
+                    'start_time': slot.start_time,
+                    'end_time': slot.end_time,
+                    'max_attendees': slot.max_attendees })
+            
+        current += timedelta(days=1)
+    return jsonify({
+        'provider_id': provider_int,
+        'available_days': available,
+        'booked_slots': booked
+    }), 200
+
+@app.route('/api/cancellation-policy', methods=['POST'])
+@admin_required
+def create_policy(current_user):
+    from models import CancellationPolicy
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('service_id'):
+        return jsonify({'message': 'service_id is required'}), 400
+    if data.get('hours_before') is None:
+        return jsonify({'message': 'hours before is required'}), 400
+    
+    existing = CancellationPolicy.query.filter_by(service_id=data['service_id']).first()
+    if existing:
+        return jsonify({'message': 'Policy already exists for this service.'})
+    policy = CancellationPolicy(service_id=data['service_id'], hours_before=data['hours_before'],
+            penalty=data.get('penalty', 0), description=data.get('description'))
+    db.session.add(policy)
+    db.session.commit()
+    return jsonify(policy.to_dict()), 201
+
+@app.route('/api/cancellation-policy/<int:service_id>', methods=['GET'])
+def get_policy(service_id):
+    from models import CancellationPolicy
+    policy = CancellationPolicy.query.filter_by(service_id=service_id).first()
+    if not policy:
+        return jsonify({'message': 'No cancellation policy set for this service.'})
+    return jsonify(policy.to_dict()), 200
+
+@app.route('/api/cancellation-policy/<int:policy_id>', methods=['PUT'])
+@admin_required
+def update_policy(current_user, policy_id):
+    from models import CancellationPolicy
+    policy = CancellationPolicy.query.get_or_404(policy_id)
+    data = request.get_json()
+
+    if 'hours_before' in data:
+        policy.hours_before = data['hours_before']
+    if 'penalty' in data:
+        policy.penalty = data['penalty']
+    if 'description' in data:
+        policy.description = data['description']
+
+    db.session.commit()
+    return jsonify(policy.to_dict()), 200
 @app.route('/')
 def home():
     return 'BookEase is running!'
