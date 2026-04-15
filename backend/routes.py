@@ -1,5 +1,6 @@
 from flask import request, jsonify
-from app import app, db
+from app import app
+from extensions import db
 from datetime import datetime, timedelta
 from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,6 +9,26 @@ import os
 
 # read secret from environment (loaded by app.py)
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+
+def is_within_provider_schedule(provider_id, start_time, end_time):
+    from models import ProviderSchedule
+
+    if start_time.date() != end_time.date():
+        return False
+
+    requested_start = start_time.strftime('%H:%M')
+    requested_end = end_time.strftime('%H:%M')
+
+    schedule_slots = ProviderSchedule.query.filter_by(
+        provider_id=provider_id,
+        day_of_week=start_time.weekday(),
+        is_active=True
+    ).all()
+
+    return any(
+        slot.start_time <= requested_start and requested_end <= slot.end_time
+        for slot in schedule_slots
+    )
 
 def clean_exp_reservations():
     with app.app_context():
@@ -56,14 +77,14 @@ def register():
         return jsonify({'message': 'Email is required'}), 400
     if not data.get('password'):
         return jsonify({'message': 'Password is required'}), 400
-    if not data.get('role') and data['role'] not in ['customer', 'provider']:
+    role = data.get('role', 'customer')
+    if role not in ['customer', 'provider']:
         return jsonify({'message': 'Role must be customer or provider'}), 400
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'Email already exists'}), 400
     if User.query.filter_by(username=data['username']).first():
         return jsonify({'message': 'Username already exists'}), 400
-
-    user = User(username=data['username'], email=data['email'], role=data.get('role', 'customer'))
+    user = User(username=data['username'], email=data['email'], role=role)
     user.set_password(data['password'])
     db.session.add(user)
     db.session.commit()
@@ -73,12 +94,45 @@ def register():
 def login():
     from models import User
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('email'):
+        return jsonify({'message': 'Email is required'}), 400
+    if not data.get('password'):
+        return jsonify({'message': 'Password is required'}), 400
     user = User.query.filter_by(email=data['email']).first()
     if user and user.check_password(data['password']):
         token = jwt.encode({'user_id': user.id, 'exp': datetime.utcnow() + timedelta(hours=24)},
                           SECRET_KEY, algorithm='HS256')
         return jsonify({'token': token, 'user': user.to_dict()})
     return jsonify({'message': 'Invalid credentials'}), 401
+
+@app.route('/api/auth/bootstrap-admin', methods=['POST'])
+def bootstrap_admin():
+    from models import User
+    data = request.get_json()
+
+    if User.query.filter_by(role='admin').first():
+        return jsonify({'message': 'Admin already exists'}), 403
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('username'):
+        return jsonify({'message': 'Username is required'}), 400
+    if not data.get('email'):
+        return jsonify({'message': 'Email is required'}), 400
+    if not data.get('password'):
+        return jsonify({'message': 'Password is required'}), 400
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'message': 'Email already exists'}), 400
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({'message': 'Username already exists'}), 400
+
+    user = User(username=data['username'], email=data['email'], role='admin')
+    user.set_password(data['password'])
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({'message': 'Admin created successfully', 'user': user.to_dict()}), 201
 
 # Service Routes
 @app.route('/api/services', methods=['GET'])
@@ -96,8 +150,8 @@ def get_services():
 @token_required
 def create_service(current_user):
     from models import Service, ProviderService
-    if current_user.role != 'provider':
-        return jsonify({'message': 'Only providers can create services'}), 403
+    if current_user.role not in ['provider', 'admin']:
+        return jsonify({'message': 'Only providers and admins can create services'}), 403
 
     data = request.get_json()
     if not data:
@@ -106,18 +160,26 @@ def create_service(current_user):
         return jsonify({'message': 'Service name is required'}), 400
     if not data.get('duration'):
         return jsonify({'message': 'Duration is required'}), 400
+    try:
+        duration = int(data['duration'])
+    except (TypeError, ValueError):
+        return jsonify({'message': 'Duration must be 15, 30, or 60 minutes'}), 400
+    if duration not in [15, 30, 60]:
+        return jsonify({'message': 'Duration must be 15, 30, or 60 minutes'}), 400
     service = Service(
         name=data['name'],
         description=data.get('description'),
-        duration=data['duration']
+        duration=duration,
+        category=data.get('category')
     )
     db.session.add(service)
     db.session.commit()
 
-    # Associate service with provider
-    provider_service = ProviderService(provider_id=current_user.id, service_id=service.id)
-    db.session.add(provider_service)
-    db.session.commit()
+    # Providers own the services they create. Admin-created services are global.
+    if current_user.role == 'provider':
+        provider_service = ProviderService(provider_id=current_user.id, service_id=service.id)
+        db.session.add(provider_service)
+        db.session.commit()
 
     return jsonify(service.to_dict()), 201
 
@@ -126,14 +188,31 @@ def create_service(current_user):
 def update_service(current_user, service_id):
     from models import Service, ProviderService
     service = Service.query.get_or_404(service_id)
-    # Check if user is the provider of this service
-    if not ProviderService.query.filter_by(provider_id=current_user.id, service_id=service_id).first():
+
+    is_admin = current_user.role == 'admin'
+    owns_service = ProviderService.query.filter_by(
+        provider_id=current_user.id,
+        service_id=service_id
+    ).first()
+
+    if not is_admin and not owns_service:
         return jsonify({'message': 'Unauthorized'}), 403
 
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+
     service.name = data.get('name', service.name)
     service.description = data.get('description', service.description)
-    service.duration = data.get('duration', service.duration)
+    if 'duration' in data:
+        try:
+            duration = int(data['duration'])
+        except (TypeError, ValueError):
+            return jsonify({'message': 'Duration must be 15, 30, or 60 minutes'}), 400
+        if duration not in [15, 30, 60]:
+            return jsonify({'message': 'Duration must be 15, 30, or 60 minutes'}), 400
+        service.duration = duration
+    service.category = data.get('category', service.category)
     db.session.commit()
     return jsonify(service.to_dict())
 
@@ -142,10 +221,17 @@ def update_service(current_user, service_id):
 def delete_service(current_user, service_id):
     from models import Service, ProviderService
     service = Service.query.get_or_404(service_id)
-    # Check if user is the provider of this service
-    if not ProviderService.query.filter_by(provider_id=current_user.id, service_id=service_id).first():
+
+    is_admin = current_user.role == 'admin'
+    owns_service = ProviderService.query.filter_by(
+        provider_id=current_user.id,
+        service_id=service_id
+    ).first()
+
+    if not is_admin and not owns_service:
         return jsonify({'message': 'Unauthorized'}), 403
 
+    ProviderService.query.filter_by(service_id=service_id).delete()
     db.session.delete(service)
     db.session.commit()
     return jsonify({'message': 'Service deleted'})
@@ -174,9 +260,9 @@ def create_booking(current_user):
     if not data.get('service_id'):
         return jsonify({'message': 'Please select a service'}), 400
     if not data.get('provider_id'):
-        return jsonify({'message': 'PLease select a provider'}), 400
+        return jsonify({'message': 'Please select a provider'}), 400
     if not data.get('start_time'):
-        return jsonify({'message': 'service_id is required'}), 400
+        return jsonify({'message': 'start_time is required'}), 400
     service = Service.query.get_or_404(data['service_id'])
     provider = User.query.get_or_404(data['provider_id'])
 
@@ -187,19 +273,39 @@ def create_booking(current_user):
     if not ProviderService.query.filter_by(provider_id=provider.id, service_id=service.id).first():
         return jsonify({'message': 'Provider does not offer this service'}), 400
 
-    start_time = datetime.fromisoformat(data['start_time'])
+    try:
+        start_time = datetime.fromisoformat(data['start_time'])
+    except ValueError:
+        return jsonify({'message': 'start_time must be a valid ISO datetime'}), 400
+
     end_time = start_time + timedelta(minutes=service.duration)
+
+    now = datetime.utcnow()
+
+    if not is_within_provider_schedule(provider.id, start_time, end_time):
+        return jsonify({'message': 'Selected time is outside the provider schedule'}), 400
+
+    active_count = Booking.query.filter(
+        Booking.user_id == current_user.id,
+        Booking.status.in_(['confirmed', 'reserved']),
+        Booking.end_time >= now,
+        db.or_(
+            Booking.status == 'confirmed',
+            Booking.reserved_until > now
+        )
+    ).count()
+
+    if active_count >= 2:
+        return jsonify({'message': 'You can only have two active bookings at a time'}), 409
 
     # Check for conflicts
     conflict = Booking.query.filter(
         Booking.provider_id == provider.id,
         Booking.status.in_(['confirmed', 'reserved']),
-        db.or_(
-            db.and_(Booking.start_time <= start_time, Booking.end_time > start_time),
-            db.and_(Booking.start_time < end_time, Booking.end_time >= end_time),
-            db.and_(Booking.start_time >= start_time, Booking.end_time <= end_time)
-        )
+        Booking.start_time < end_time,
+        Booking.end_time > start_time
     ).first()
+
 
     if conflict:
         return jsonify({'message': 'Time slot is not available'}), 409
@@ -218,10 +324,10 @@ def create_booking(current_user):
 
     return jsonify(booking.to_dict()), 201
 
-@app.route('/api/bookings/<int:booking_id>/reserve', methods=['POST'])
+@app.route('/api/bookings/reserve', methods=['POST'])
 @token_required
-def reserve_booking(current_user, booking_id):
-    from models import Service, User, Booking
+def reserve_booking(current_user):
+    from models import Service, User, Booking, ProviderService
     data = request.get_json()
 
     if not data:
@@ -229,26 +335,51 @@ def reserve_booking(current_user, booking_id):
     if not data.get('service_id'):
         return jsonify({'message': 'Please select a service'}), 400
     if not data.get('provider_id'):
-        return jsonify({'message': 'PLease select a provider'}), 400
+        return jsonify({'message': 'Please select a provider'}), 400
     if not data.get('start_time'):
-        return jsonify({'message': 'service_id is required'}), 400
-    service = Service.query.get_or_404(data['service_id'])
-    provider = User.query.get_or_404(data['provider_id'])
+        return jsonify({'message': 'start_time is required'}), 400
     service = Service.query.get_or_404(data['service_id'])
     provider = User.query.get_or_404(data['provider_id'])
 
-    start_time = datetime.fromisoformat(data['start_time'])
+    if provider.role != 'provider':
+        return jsonify({'message': 'Invalid provider'}), 400
+
+    if not ProviderService.query.filter_by(provider_id=provider.id, service_id=service.id).first():
+        return jsonify({'message': 'Provider does not offer this service'}), 400
+
+
+    try:
+        start_time = datetime.fromisoformat(data['start_time'])
+    except ValueError:
+        return jsonify({'message': 'start_time must be a valid ISO datetime'}), 400
+
     end_time = start_time + timedelta(minutes=service.duration)
+
+    now = datetime.utcnow()
+
+    if not is_within_provider_schedule(provider.id, start_time, end_time):
+        return jsonify({'message': 'Selected time is outside the provider schedule'}), 400
+
+    active_count = Booking.query.filter(
+        Booking.user_id == current_user.id,
+        Booking.status.in_(['confirmed', 'reserved']),
+        Booking.end_time >= now,
+        db.or_(
+            Booking.status == 'confirmed',
+            Booking.reserved_until > now
+        )
+    ).count()
+
+    if active_count >= 2:
+        return jsonify({'message': 'You can only have two active bookings at a time'}), 409
+
 
     # Check for conflicts
     conflict = Booking.query.filter(
         Booking.provider_id == provider.id,
         Booking.status.in_(['confirmed', 'reserved']),
-        db.or_(
-            db.and_(Booking.start_time <= start_time, Booking.end_time > start_time),
-            db.and_(Booking.start_time < end_time, Booking.end_time >= end_time),
-            db.and_(Booking.start_time >= start_time, Booking.end_time <= end_time)
-        )
+        Booking.start_time < end_time,
+        Booking.end_time > start_time
     ).first()
 
     if conflict:
@@ -308,7 +439,7 @@ def cancel_booking(current_user, booking_id):
 
         if hours_until < policy.hours_before:
             return jsonify({'message': f'Cannot cancel — policy requires {policy.hours_before} hours notice',
-                'penalty_percent': policy.penalty_percent,
+                'penalty': policy.penalty,
                 'description': policy.description}), 400
         
     booking.status = 'cancelled'
@@ -333,11 +464,61 @@ def admin_required(f):
         return f(current_user, *args, **kwargs)
     return decorated 
 
+@app.route('/api/bookings/<int:booking_id>/reschedule', methods=['PUT'])
+@token_required
+def reschedule_booking(current_user, booking_id):
+    from models import Booking
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    if not data.get('start_time'):
+        return jsonify({'message': 'start_time is required'}), 400
+
+    booking = Booking.query.get_or_404(booking_id)
+
+    if booking.user_id != current_user.id and booking.provider_id != current_user.id:
+        return jsonify({'message': 'Unauthorized'}), 403
+
+    if booking.status == 'cancelled':
+        return jsonify({'message': 'Cannot reschedule a cancelled booking'}), 400
+
+    try:
+        new_start_time = datetime.fromisoformat(data['start_time'])
+    except ValueError:
+        return jsonify({'message': 'start_time must be a valid ISO datetime'}), 400
+
+    new_end_time = new_start_time + timedelta(minutes=booking.service.duration)
+
+    if not is_within_provider_schedule(booking.provider_id, new_start_time, new_end_time):
+        return jsonify({'message': 'Selected time is outside the provider schedule'}), 400
+
+    conflict = Booking.query.filter(
+        Booking.id != booking.id,
+        Booking.provider_id == booking.provider_id,
+        Booking.status.in_(['confirmed', 'reserved']),
+        Booking.start_time < new_end_time,
+        Booking.end_time > new_start_time
+    ).first()
+
+    if conflict:
+        return jsonify({'message': 'Time slot is not available'}), 409
+
+    booking.start_time = new_start_time
+    booking.end_time = new_end_time
+
+    if booking.status == 'reserved':
+        booking.reserved_until = datetime.utcnow() + timedelta(minutes=15)
+
+    db.session.commit()
+
+    return jsonify(booking.to_dict()), 200
+
 @app.route('/api/bookings/history', methods=['GET'])
 @token_required
 def booking_history(current_user):
     from models import Booking
-    now = datetime.utcnow().isoformat()
+    now = datetime.utcnow()
     if current_user.role == 'customer':
         bookings = Booking.query.filter(Booking.user_id == current_user.id,
             Booking.end_time < now
@@ -351,7 +532,7 @@ def booking_history(current_user):
 @token_required
 def upcoming_sessions(current_user):
     from models import Booking
-    now = datetime.utcnow().isoformat()
+    now = datetime.utcnow()
     if current_user.role == 'customer':
         bookings = Booking.query.filter(Booking.user_id == current_user.id, 
             Booking.start_time > now, Booking.status == 'confirmed').all()
@@ -437,6 +618,10 @@ def create_feedback(current_user):
         return jsonify({'message': 'You can only leave feedback for your own bookings'}), 400
     if booking.status != 'confirmed':
         return jsonify({'message': 'You can only leave feedback for confirmed bookings'}), 400
+    if booking.service_id != data['service_id']:
+        return jsonify({'message': 'Feedback service must match booking service'}), 400
+    if booking.end_time > datetime.utcnow():
+        return jsonify({'message': 'You can only leave feedback after the session ends'}), 400
     
     existing = Feedback.query.filter_by(booking_id=data['booking_id'], user_id=current_user.id).first()
     if existing:
@@ -533,50 +718,72 @@ def get_provider_schedule(provider_id):
 
 @app.route('/api/availability/<int:provider_id>', methods=['GET'])
 def get_availability(provider_id):
-    from models import ProviderSchedule, Booking
-    from datetime import date, timedelta
+    from models import ProviderSchedule, Booking, User
+    from datetime import date, datetime, timedelta
 
-    start_date = request.args.get('start_date', date.today().isoformat())
-    end_date = request.args.get('end_date', (date.today() + timedelta(days=7)).isoformat())
-    schedule = ProviderSchedule.query.filter_by(provider_id=provider_id, is_active=True).all()
-    
-    if provider_id != 'provider':
-        return jsonify({'message': 'This is not a provider'})
+    provider = User.query.get_or_404(provider_id)
+    if provider.role != 'provider':
+        return jsonify({'message': 'This user is not a provider'}), 400
+
+    start_date_str = request.args.get('start_date', date.today().isoformat())
+    end_date_str = request.args.get('end_date', (date.today() + timedelta(days=7)).isoformat())
+
+    try:
+        start_day = date.fromisoformat(start_date_str)
+        end_day = date.fromisoformat(end_date_str)
+    except ValueError:
+        return jsonify({'message': 'Dates must use YYYY-MM-DD format'}), 400
+
+    if end_day < start_day:
+        return jsonify({'message': 'end_date must be after start_date'}), 400
+
+    start_dt = datetime.combine(start_day, datetime.min.time())
+    end_dt = datetime.combine(end_day, datetime.max.time())
+
+    schedule = ProviderSchedule.query.filter_by(
+        provider_id=provider_id,
+        is_active=True
+    ).all()
+
     if not schedule:
         return jsonify({'message': 'Provider has no schedule set'}), 404
-    
+
     existing = Booking.query.filter(
-        Booking.provider_id == provider_id, 
+        Booking.provider_id == provider_id,
         Booking.status.in_(['confirmed', 'reserved']),
-        Booking.start_time >= start_date,
-        Booking.start_time <= end_date
+        Booking.start_time >= start_dt,
+        Booking.start_time <= end_dt
     ).all()
 
     booked = [{
-        'start_time': b.start_time.isoformat() if hasattr(b.start_time, 'isoformat') else b.start_time, 
-        'end_time': b.end_time.isoformat() if hasattr(b.end_time, 'isoformat') else b.end_time
-    }for b in existing]
+        'id': b.id,
+        'service_id': b.service_id,
+        'start_time': b.start_time.isoformat(),
+        'end_time': b.end_time.isoformat(),
+        'status': b.status
+    } for b in existing]
 
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     available = []
-    current = date.fromisoformat(start_date)
-    end = date.fromisoformat(end_date)
 
-    while current <= end:
+    current = start_day
+    while current <= end_day:
         day_of_week = current.weekday()
-        daySchedule = [s for s in schedule if s.day_of_week == day_of_week]
+        day_schedule = [slot for slot in schedule if slot.day_of_week == day_of_week]
 
-        if daySchedule:
-            for slot in daySchedule:
-                available.append({
-                    'date': current.isoformat(),
-                    'dayName': slot.to_dict()['dayName'],
-                    'start_time': slot.start_time,
-                    'end_time': slot.end_time,
-                    'max_attendees': slot.max_attendees })
-            
+        for slot in day_schedule:
+            available.append({
+                'date': current.isoformat(),
+                'day_name': days[day_of_week],
+                'start_time': slot.start_time,
+                'end_time': slot.end_time,
+                'max_attendees': slot.max_attendees
+            })
+
         current += timedelta(days=1)
+
     return jsonify({
-        'provider_id': provider_int,
+        'provider_id': provider_id,
         'available_days': available,
         'booked_slots': booked
     }), 200
