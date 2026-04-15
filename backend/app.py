@@ -1,5 +1,5 @@
 from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
+from extensions import db
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
@@ -21,7 +21,7 @@ db_uri = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 print(f"Using database: {db_path}")
-db = SQLAlchemy(app)
+db.init_app(app)
 
 # Import models and routes after db initialization
 from models import *

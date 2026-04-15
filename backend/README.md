@@ -1,84 +1,200 @@
 # BookEase Backend
 
-BookEase is a simple service-booking platform where customers can reserve and book appointments with service providers (such as haircuts, tutoring, or other services).
+BookEase is a Flask REST API for a student service-booking app. It supports customers, providers, and admins; service browsing by category; provider schedules; booking, reservation, cancellation, rescheduling, feedback, and basic admin management.
 
-The backend is a Flask REST API that manages authentication, services, and appointment bookings while preventing double booking through a temporary reservation system.
-
-A **simplified Flask REST API** for the BookEase booking application. This version contains only the functionality required by the class project.
+The backend is intentionally small for the class project, but it covers the required proposal features.
 
 ## Setup
 
-1. Copy the example env file and provide real values:
-   ```bash
-   cp .env.example .env
-   # edit .env to set JWT_SECRET_KEY (and DATABASE_URL if needed)
-   ```
-2. Create and activate a virtual environment:
+1. Create and activate a virtual environment:
+
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate
    ```
-3. Install dependencies:
+
+2. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
-4. Run the application:
+
+3. Create a `.env` file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Make sure `.env` has a JWT secret:
+
+   ```bash
+   JWT_SECRET_KEY=dev-secret
+   ```
+
+4. Run the backend:
+
    ```bash
    python app.py
    ```
 
-The API will be available at `http://localhost:5000` (or the port shown in the terminal).
+The API runs at:
 
-## Environment variables
+```text
+http://localhost:5001
+```
 
-- `JWT_SECRET_KEY` – secret used to sign JSON Web Tokens
-- `DATABASE_URL` – optional database URI (defaults to SQLite in `instance/bookease.db`)
+The SQLite database is created automatically at:
 
-## Database schema
+```text
+backend/instance/bookease.db
+```
 
-Four simple tables: `users`, `services`, `bookings`, and `provider_services`. The models in `models.py` reflect this structure.
+## Authentication
 
-## Available endpoints
+Protected routes require this header:
 
-These cover only the required flows.
+```text
+Authorization: Bearer <token>
+```
 
-### Authentication
-- `POST /api/auth/register` – register new user
-- `POST /api/auth/login` – obtain JWT token
+Use `POST /api/auth/login` to get the token.
+
+## First Admin
+
+Normal registration only allows `customer` and `provider` accounts. To create the first admin, use the one-time bootstrap route:
+
+```bash
+curl -X POST http://localhost:5001/api/auth/bootstrap-admin \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","email":"admin@bookease.com","password":"admin123"}'
+```
+
+After one admin exists, this route returns an error and cannot create another admin.
+
+## Main Rules
+
+- Customers can book, reserve, cancel, reschedule, view booking history, and leave feedback.
+- Providers can create services, manage only their own services, set schedules, and view incoming bookings.
+- Admins can create, update, and delete any service, manage users, view bookings, and manage cancellation policies.
+- Service duration must be `15`, `30`, or `60` minutes.
+- A customer can have at most two active bookings.
+- A provider cannot be double-booked.
+- Bookings and reservations must fit inside the provider's active schedule.
+- Feedback can only be left by the customer who made the booking, for the matching service, after the session has ended.
+
+## Availability
+
+The availability endpoint returns the provider's active schedule and existing booked/reserved slots:
+
+```text
+GET /api/availability/<provider_id>?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+```
+
+Important demo wording:
+
+```text
+The backend returns schedule windows and booked times. The frontend calculates and displays the open time slots.
+```
+
+Do not say the backend calculates every available slot.
+
+## Temporary Reservation System
+
+BookEase includes a temporary reservation flow to prevent double booking while a customer is completing a booking.
+
+Use:
+
+```text
+POST /api/bookings/reserve
+```
+
+This creates a `reserved` booking for 15 minutes. During that time, other users cannot book or reserve the same provider time. A background cleanup job deletes expired reservations every 5 minutes.
+
+To finalize the reservation:
+
+```text
+PUT /api/bookings/<booking_id>/confirm
+```
+
+## Database Models
+
+The backend currently uses these models:
+
+- `User`
+- `Service`
+- `Booking`
+- `ProviderService`
+- `Feedback`
+- `ProviderSchedule`
+- `CancellationPolicy`
+
+## API Routes
+
+### Auth
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/bootstrap-admin`
 
 ### Services
-- `GET /api/services` – list all services (customers see everything)
-- `POST /api/services` – provider creates a service
-- `PUT /api/services/<id>` – provider updates their service
-- `DELETE /api/services/<id>` – provider deletes their service
+
+- `GET /api/services`
+- `GET /api/services?category=<category>`
+- `POST /api/services`
+- `PUT /api/services/<service_id>`
+- `DELETE /api/services/<service_id>`
 
 ### Bookings
-- `GET /api/bookings` – view your bookings (customers) or your incoming bookings (providers)
-- `POST /api/bookings` – book a slot (confirmed immediately)
-- `POST /api/bookings/<id>/reserve` – temporarily reserve a slot (expires in 15 min)
-- `PUT /api/bookings/<id>/confirm` – convert reservation to confirmed booking
-- `PUT /api/bookings/<id>/cancel` – cancel an existing booking
 
-> **Note:** JWT authentication is required for all service/booking routes. Include header:
-> ```
-> Authorization: Bearer <token>
-> ```
+- `GET /api/bookings`
+- `POST /api/bookings`
+- `POST /api/bookings/reserve`
+- `PUT /api/bookings/<booking_id>/confirm`
+- `PUT /api/bookings/<booking_id>/cancel`
+- `PUT /api/bookings/<booking_id>/reschedule`
+- `GET /api/bookings/history`
+- `GET /api/bookings/upcoming`
 
-## Unique Feature – Temporary Reservation System
+### Admin
 
-BookEase prevents double booking using a temporary reservation system.
+- `GET /api/admin/users`
+- `GET /api/admin/bookings`
+- `PUT /api/admin/users/<user_id>/roles`
 
-When a user selects a time slot, the system reserves it for **15 minutes** before confirmation. During this time:
+### Profile
 
-- Other users cannot reserve or book the same slot.
-- The user must confirm the booking before the timer expires.
+- `GET /api/profile`
+- `PUT /api/profile`
 
-If the reservation is not confirmed within 15 minutes, the slot becomes available again.
+### Feedback
 
-This mechanism prevents race conditions where multiple users try to book the same appointment at the same time.
+- `POST /api/feedback`
+- `GET /api/feedback/service/<service_id>`
 
-## Design notes
+### Provider Schedule
 
-- Double‑booking is prevented by checking existing confirmed/reserved bookings for a provider.
-- The code is intentionally minimal and readable for a university project.
-- No advanced features like availability calendars or background cleanup are included.
+- `GET /api/schedule`
+- `POST /api/schedule`
+- `PUT /api/schedule/<slot_id>`
+- `DELETE /api/schedule/<slot_id>`
+- `GET /api/schedule/provider/<provider_id>`
+
+### Availability
+
+- `GET /api/availability/<provider_id>`
+
+### Cancellation Policies
+
+- `POST /api/cancellation-policy`
+- `GET /api/cancellation-policy/<service_id>`
+- `PUT /api/cancellation-policy/<policy_id>`
+
+## Resetting Local Data
+
+To reset the local SQLite database during development, stop the server and delete:
+
+```bash
+rm -rf instance
+```
+
+Then run `python app.py` again.
