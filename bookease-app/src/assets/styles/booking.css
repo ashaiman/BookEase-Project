@@ -1,0 +1,11 @@
+.booking { padding: 20px; }
+.slot {
+  padding: 10px;
+  border: 1px solid #aaa;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.slot:hover {
+  background: #f0f0ff;
+}

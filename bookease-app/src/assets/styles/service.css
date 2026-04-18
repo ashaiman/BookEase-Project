@@ -1,0 +1,11 @@
+.service-detail { padding: 20px; }
+.duration {
+  padding: 10px;
+  border: 1px solid #ccc;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.duration:hover {
+  background: #eef;
+}

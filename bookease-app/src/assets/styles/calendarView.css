@@ -1,0 +1,63 @@
+.booking-page {
+	padding: 20px;
+}
+
+/* Calendar layout fix */
+.fc {
+	max-width: 100%;
+}
+
+/* Side panel */
+.event-panel {
+	margin-top: 20px;
+	padding: 15px;
+	background: white;
+	border-radius: 10px;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+	max-width: 400px;
+}
+
+/* Buttons */
+.event-panel button {
+	margin-right: 10px;
+	margin-top: 10px;
+	padding: 8px 12px;
+	border: none;
+	border-radius: 6px;
+	cursor: pointer;
+	background: #4a6cf7;
+	color: white;
+}
+
+.event-panel button:hover {
+	background: #3a57d6;
+}
+
+.close-btn {
+	background: #999 !important;
+}
+
+.modalOverlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0,0,0,0.5);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+.modalBox {
+	background: white;
+	padding: 20px;
+	border-radius: 10px;
+	width: 300px;
+}
+
+.modalActions {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 10px;
+}
