@@ -1,250 +1,270 @@
 <template>
 	<div class="dashboard" v-if="user">
 		<h2>Dashboard</h2>
+		<p>{{ roleLabel }}</p>
+		<p>Your user ID: {{ user.id }}</p>
+		<p v-if="message">{{ message }}</p>
+		<p v-if="error" class="error">{{ error }}</p>
 
-		<p v-if="user.role === 'admin'">Admin Panel</p>
-		<p v-else>Student Dashboard</p>
-
-
-			<!-- Admin Buttons -->
-			<div v-if="user && user.role === 'admin'">
-			<p>Manage Services</p>
+		<div v-if="user.role === 'admin' || user.role === 'provider'">
+			<h3>Services</h3>
 			<button @click="showCreate = true">Create Service</button>
-			<button @click="showEdit = true">Edit Service</button>
-			<button @click="showCancellations = true">View Cancellations</button>
-		</div>
+			<button @click="loadServices">Refresh Services</button>
 
-		
-			<!-- Student Buttons -->
-			 <div v-else>
-			<p>View Your Bookings</p>
 			<ul>
-				<li
-					v-for="student in upcoming" :key="student.id"> {{ student.name }} - {{ student.time }}
-					<button @click="cancelBooking(student.id)">Cancel</button>
+				<li v-for="service in services" :key="service.id">
+					{{ service.name }} - {{ service.category || 'no category' }} - {{ service.duration }} mins
+					<button @click="startEdit(service)">Edit</button>
+					<button @click="deleteService(service.id)">Delete</button>
 				</li>
 			</ul>
 		</div>
+
+		<div v-if="user.role === 'provider'">
+			<h3>Provider Schedule</h3>
+			<div class="modal">
+				<select v-model.number="scheduleForm.day_of_week">
+					<option :value="0">Monday</option>
+					<option :value="1">Tuesday</option>
+					<option :value="2">Wednesday</option>
+					<option :value="3">Thursday</option>
+					<option :value="4">Friday</option>
+					<option :value="5">Saturday</option>
+					<option :value="6">Sunday</option>
+				</select>
+				<input v-model="scheduleForm.start_time" type="time" />
+				<input v-model="scheduleForm.end_time" type="time" />
+				<button @click="submitSchedule">Save Schedule</button>
+			</div>
+			<ul>
+				<li v-for="slot in schedule" :key="slot.id">
+					Day {{ slot.day_of_week }}: {{ slot.start_time }} - {{ slot.end_time }}
+					<button @click="deleteSchedule(slot.id)">Delete</button>
+				</li>
+			</ul>
+		</div>
+
+		<div>
+			<h3>{{ user.role === 'provider' ? 'Incoming Bookings' : 'Your Upcoming Bookings' }}</h3>
+			<button @click="loadUpcoming">Refresh Bookings</button>
+			<p v-if="loadingBookings">Loading bookings...</p>
+			<p v-else-if="upcoming.length === 0">No upcoming bookings.</p>
+			<ul v-else>
+				<li v-for="booking in upcoming" :key="booking.id">
+					Booking #{{ booking.id }} -
+					Service #{{ booking.service_id }} -
+					{{ formatDate(booking.start_time) }} -
+					{{ booking.status }}
+					<button @click="cancelBooking(booking.id)">Cancel</button>
+				</li>
+			</ul>
+		</div>
+
 		<button @click="$emit('navigate', 'HomeView')">Back</button>
 
-		<!-- Create Service Modal -->
 		<div v-if="showCreate" class="modal">
 			<h3>Create New Service</h3>
-
 			<input v-model="newService.name" placeholder="Service Name" />
-			<input v-model="newService.duration" placeholder="Duration (mins)" type="number" />
-
+			<input v-model="newService.description" placeholder="Description" />
+			<input v-model="newService.category" placeholder="Category" />
+			<select v-model.number="newService.duration">
+				<option :value="15">15 minutes</option>
+				<option :value="30">30 minutes</option>
+				<option :value="60">60 minutes</option>
+			</select>
 			<button @click="submitCreate" :disabled="loadingCreate">
 				{{ loadingCreate ? 'Saving...' : 'Save' }}
 			</button>
 			<button @click="showCreate = false">Close</button>
 		</div>
 
-
-		<!-- Edit Service Modal -->
-		<div v-if="showEdit" class="modal">
+		<div v-if="editingService" class="modal">
 			<h3>Edit Service</h3>
-
-			<p v-if="loadingServices">Loading services...</p>
-			<ul v-else>
-				<li v-for="service in services" :key="service.id">
-					{{ service.name }} ({{ service.duration }} mins)
-					<button @click="startEdit(service)">Edit</button>
-				</li>
-			</ul>
-
-			<!-- Editing form -->
-			<div v-if="editingService">
-				<h4>Editing: {{ editingService.name }}</h4>
-				<input v-model="editingService.name" placeholder="Service Name" />
-				<input v-model="editingService.duration" placeholder="Duration (mins)" type="number" />
-				<button @click="submitEdit">Save Changes</button>
-				<!-- <button @click="editingService = null">Cancel</button> -->
-			</div>
-			
-			<button @click="showEdit = false">Close</button>
+			<input v-model="editingService.name" placeholder="Service Name" />
+			<input v-model="editingService.description" placeholder="Description" />
+			<input v-model="editingService.category" placeholder="Category" />
+			<select v-model.number="editingService.duration">
+				<option :value="15">15 minutes</option>
+				<option :value="30">30 minutes</option>
+				<option :value="60">60 minutes</option>
+			</select>
+			<button @click="submitEdit">Save Changes</button>
+			<button @click="editingService = null">Close</button>
 		</div>
+	</div>
 
-		<!-- View Cancellations Modal -->
-		<div v-if="showCancellations" class="modal">
-			<h3>View Cancellations</h3>
-
-			<p v-if="loadingCancellations">Loading cancellations...</p>
-
-			<p v-else-if="cancellations.length === 0">No cancellations to show.</p>
-
-			<ul v-else>
-				<li v-for="cancellation in cancellations" :key="cancellation.id">
-					{{ cancellation.service }} - {{ cancellation.date }} (Cancelled by {{ cancellation.student }})
-				</li>
-			</ul>
-			<button @click="showCancellations = false">Close</button>
-		</div>
-
-		<div v-else>
-			<p>Please Log In to view dashboard.</p>
-		</div>
+	<div v-else class="dashboard">
+		<p>Please log in to view your dashboard.</p>
 	</div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue';
+import { apiRequest } from '../api';
 import "../assets/styles/dashboard.css";
 
 const props = defineProps({
 	user: Object
 });
 
-// placeholder admin user
-const testAdmin = {
-	id: 999,
-	name: "Admin User",
-	email: "admin@example.com",
-	role: "admin"
-};
-
-// Test admin user if no active user
-const user = computed(() => props.user || testAdmin);
-
-// Modal States
-const showCreate = ref(false);
-const showEdit = ref(false);
-const showCancellations = ref(false);
-
-// Loading States
-const loadingCreate = ref(false);
-const loadingServices = ref(false);
-const loadingCancellations = ref(false);
-
-// Form Modal
-const newService = ref({
-	name: '',
-	duration: ''
+const user = computed(() => props.user);
+const roleLabel = computed(() => {
+	if (user.value?.role === 'admin') return 'Admin Panel';
+	if (user.value?.role === 'provider') return 'Provider Dashboard';
+	return 'Student Dashboard';
 });
 
-// Data Lists
-const services = ref([]);
-const cancellations = ref([]);
+const showCreate = ref(false);
+const loadingCreate = ref(false);
+const loadingBookings = ref(false);
+const message = ref('');
+const error = ref('');
 
+const newService = ref({
+	name: '',
+	description: '',
+	category: '',
+	duration: 30
+});
+
+const scheduleForm = ref({
+	day_of_week: 0,
+	start_time: '09:00',
+	end_time: '17:00',
+	max_attendees: 1
+});
+
+const services = ref([]);
+const schedule = ref([]);
+const upcoming = ref([]);
 const editingService = ref(null);
 
-// Student Bookings Placeholder
-const upcoming = ref([
-	{ id: 1, name: "Math Tutoring", time: "10:00 AM" },
-	{ id: 2, name: "Writing Center", time: "2:00 PM" }
-]);
-
-function cancelBooking(id) {
-	// ASK API
-	alert(`Booking with id ${id} cancelled!`);
-	upcoming.value = upcoming.value.filter(student => student.id !== id);
+function setMessage(text) {
+	message.value = text;
+	error.value = '';
 }
 
-// Create Service
+function setError(err) {
+	error.value = err.message || String(err);
+	message.value = '';
+}
+
+function formatDate(value) {
+	return new Date(value).toLocaleString();
+}
+
+async function loadServices() {
+	try {
+		services.value = await apiRequest('/api/services');
+	} catch (err) {
+		setError(err);
+	}
+}
+
+async function loadSchedule() {
+	if (user.value?.role !== 'provider') return;
+	try {
+		schedule.value = await apiRequest('/api/schedule');
+	} catch (err) {
+		setError(err);
+	}
+}
+
+async function loadUpcoming() {
+	if (!user.value) return;
+	loadingBookings.value = true;
+	try {
+		upcoming.value = await apiRequest('/api/bookings/upcoming');
+	} catch (err) {
+		setError(err);
+	} finally {
+		loadingBookings.value = false;
+	}
+}
+
 async function submitCreate() {
 	loadingCreate.value = true;
-	
-	// ASK API
-
-	console.log("Creating service:", newService.value);
-
-	services.value.push({
-		id: Date.now(), // Placeholder ID
-		name: newService.value.name,
-		duration: Number(newService.value.duration)
-	});
-
-	loadingCreate.value = false;
-	showCreate.value = false;
-}
-
-// Edit Service
-async function openEdit() {
-	showEdit.value = true;
-	loadServices();
-}
-
-	async function loadServices() {
-	loadingServices.value = true;
-
-	// ASK API
-
-	// Placeholder data
-	services.value = [
-		{ id: 1, name: "Math Tutoring", duration: 30 },
-		{ id: 2, name: "Writing Center", duration: 45 }
-	];
-
-	loadingServices.value = false;
+	try {
+		const service = await apiRequest('/api/services', {
+			method: 'POST',
+			body: JSON.stringify(newService.value)
+		});
+		services.value.push(service);
+		newService.value = { name: '', description: '', category: '', duration: 30 };
+		showCreate.value = false;
+		setMessage('Service created.');
+	} catch (err) {
+		setError(err);
+	} finally {
+		loadingCreate.value = false;
+	}
 }
 
 function startEdit(service) {
 	editingService.value = { ...service };
 }
 
-function submitEdit() {
-	// ASK API
-
-	const index = services.value.findIndex(student => student.id === editingService.value.id);
-	if (index !== -1) {
-		services.value[index] = { ...editingService.value };
+async function submitEdit() {
+	try {
+		const updated = await apiRequest(`/api/services/${editingService.value.id}`, {
+			method: 'PUT',
+			body: JSON.stringify(editingService.value)
+		});
+		const index = services.value.findIndex(service => service.id === updated.id);
+		if (index !== -1) services.value[index] = updated;
+		editingService.value = null;
+		setMessage('Service updated.');
+	} catch (err) {
+		setError(err);
 	}
-
-	alert(`Service ${editingService.value.name} updated!`);
-	editingService.value = null;
-	// showEdit.value = false;
 }
 
-
-// Load Cancellations
-function viewCancellations() {
-	showCancellations.value = true;
-	loadCancellations();
+async function deleteService(serviceId) {
+	try {
+		await apiRequest(`/api/services/${serviceId}`, { method: 'DELETE' });
+		services.value = services.value.filter(service => service.id !== serviceId);
+		setMessage('Service deleted.');
+	} catch (err) {
+		setError(err);
+	}
 }
 
-async function loadCancellations() {
-	loadingCancellations.value = true;
-	// loadCancellations();
-
-	// ASK API
-
-	// Placeholder data
-	cancellations.value = [
-		{ id: 1, service: "Math Tutoring", date: "2026-07-01 10:00", student: "John Doe" },
-		{ id: 2, service: "Writing Center", date: "2026-07-02 14:00", student: "Jane Smith" }
-	];
-
-	loadingCancellations.value = false;
+async function submitSchedule() {
+	try {
+		const slot = await apiRequest('/api/schedule', {
+			method: 'POST',
+			body: JSON.stringify(scheduleForm.value)
+		});
+		schedule.value.push(slot);
+		setMessage('Schedule saved.');
+	} catch (err) {
+		setError(err);
+	}
 }
 
-// const emit = defineEmits(['navigate']);
+async function deleteSchedule(slotId) {
+	try {
+		await apiRequest(`/api/schedule/${slotId}`, { method: 'DELETE' });
+		schedule.value = schedule.value.filter(slot => slot.id !== slotId);
+		setMessage('Schedule deleted.');
+	} catch (err) {
+		setError(err);
+	}
+}
 
-// const loadingCreate = ref(false);
-// const loadingServices = ref(false);
-// const loadingCancellations = ref(false);
+async function cancelBooking(id) {
+	try {
+		await apiRequest(`/api/bookings/${id}/cancel`, { method: 'PUT' });
+		upcoming.value = upcoming.value.filter(booking => booking.id !== id);
+		setMessage('Booking cancelled.');
+	} catch (err) {
+		setError(err);
+	}
+}
 
-// const upcoming = ref([
-// 	{ id: 1, name: "Math Tutoring", time: "10:00 AM" },
-// 	{ id: 2, name: "Writing Center", time: "2:00 PM" }
-// ]); // Placeholder data
-
-// function cancelBooking(id) {
-// 	// Here you would send a request to your backend to cancel the booking
-// 	// For now, we'll just remove it from the upcoming list
-// 	alert(`Booking with id ${id} cancelled!`);
-// 	upcoming.value = upcoming.value.filter(s => s.id !== id);
-// }
-
-// function createService() {
-// 	//API call to create service
-// }
-
-// function editService() {
-// 	//API call to edit service
-// }
-
-// function viewCancellations() {
-// 	//API call to view cancellations
-// }
-
+onMounted(() => {
+	loadServices();
+	loadSchedule();
+	loadUpcoming();
+});
 </script>
