@@ -2,14 +2,17 @@
 <script setup>
 import { ref } from 'vue';
 import '../assets/styles/login.css';
+import { apiRequest } from '../api';
 // const emitted = defineEmits(['navigate']);
 
 const loading = ref(false);
 const emit = defineEmits(['navigate']);
 const mode = ref('login'); // 'login' or 'register'
+const username = ref('');
 const email = ref('');
 const password = ref('');
-const isLogin = ref(false);
+const confirmPassword = ref('');
+const role = ref('customer');
 const error = ref('');
 
 const toggleMode = () => {
@@ -22,23 +25,33 @@ const handleLogin = async () => {
 	loading.value = true;
 
 	try {
-
-		const endpoint = mode.value === 'login' ? '/api/login' : '/api/register';
-
-		const res = await fetch('/api/login', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ email: email.value, password: password.value }),
-		});
-
-		if (!res.ok) {
-			throw new Error(`${mode.value} failed`);
+		if (mode.value === 'register' && password.value !== confirmPassword.value) {
+			throw new Error('Passwords do not match');
 		}
 
-		const data = await res.json();
-		localStorage.setItem('token', data.token);
+		const endpoint = mode.value === 'login' ? '/api/auth/login' : '/api/auth/register';
+		const body = mode.value === 'login'
+			? { email: email.value, password: password.value }
+			: {
+				username: username.value,
+				email: email.value,
+				password: password.value,
+				role: role.value
+			};
 
-		alert (`${mode.value} successful !`);
+		const data = await apiRequest(endpoint, {
+			method: 'POST',
+			body: JSON.stringify(body),
+		});
+
+		if (mode.value === 'register') {
+			mode.value = 'login';
+			alert('Registration successful! Please log in.');
+			return;
+		}
+
+		localStorage.setItem('token', data.token);
+		localStorage.setItem('user', JSON.stringify(data.user));
 		emit('navigate', 'HomeView', { user: data.user });
 	} catch (err) {
 		error.value = err.message;
@@ -55,10 +68,14 @@ const handleLogin = async () => {
 	<!-- Use loginContainer for css later -->
 	<div class="loginContainer">
 		<div class="loginCard">
-			<h2 class ="loginTitle">Login</h2>
-				{{ mode === 'login' ? 'Login' : 'Register' }}
+			<h2 class ="loginTitle">{{ mode === 'login' ? 'Login' : 'Register' }}</h2>
 
 			<form @submit.prevent="handleLogin">
+				<div v-if="mode === 'register'" class = "inputGroup">
+					<label>Username</label>
+					<input v-model="username" type="text" placeholder="Enter your username" required />
+				</div>
+
 				<div class = "inputGroup">
 					<label>Email</label>
 					<input v-model="email" type="email" placeholder="Enter your email" required />
@@ -73,6 +90,14 @@ const handleLogin = async () => {
 				<div v-if="mode === 'register'" class="inputGroup">
 					<label>Confirm Password</label>
 					<input v-model="confirmPassword" type="password" placeholder="Confirm your password" required />
+				</div>
+
+				<div v-if="mode === 'register'" class="inputGroup">
+					<label>Role</label>
+					<select v-model="role">
+						<option value="customer">Student</option>
+						<option value="provider">Provider</option>
+					</select>
 				</div>
 
 				<button class="loginButton" :disabled="loading">

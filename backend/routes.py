@@ -7,8 +7,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import jwt
 import os
 
-# read secret from environment (loaded by app.py)
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+# read secret from environment (loaded by app.py); fallback keeps local demos from crashing
+SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'bookease-dev-secret')
 
 def is_within_provider_schedule(provider_id, start_time, end_time):
     from models import ProviderSchedule
@@ -219,7 +219,7 @@ def update_service(current_user, service_id):
 @app.route('/api/services/<int:service_id>', methods=['DELETE'])
 @token_required
 def delete_service(current_user, service_id):
-    from models import Service, ProviderService
+    from models import Service, ProviderService, Booking
     service = Service.query.get_or_404(service_id)
 
     is_admin = current_user.role == 'admin'
@@ -230,6 +230,9 @@ def delete_service(current_user, service_id):
 
     if not is_admin and not owns_service:
         return jsonify({'message': 'Unauthorized'}), 403
+
+    if Booking.query.filter_by(service_id=service_id).first():
+        return jsonify({'message': 'Cannot delete a service that has bookings'}), 409
 
     ProviderService.query.filter_by(service_id=service_id).delete()
     db.session.delete(service)
@@ -254,6 +257,9 @@ def get_bookings(current_user):
 def create_booking(current_user):
     from models import Service, User, Booking, ProviderService
     data = request.get_json()
+
+    if current_user.role != 'customer':
+        return jsonify({'message': 'Only students can book services'}), 403
 
     if not data:
         return jsonify({'message': 'No data provided'}), 400
@@ -329,6 +335,9 @@ def create_booking(current_user):
 def reserve_booking(current_user):
     from models import Service, User, Booking, ProviderService
     data = request.get_json()
+
+    if current_user.role != 'customer':
+        return jsonify({'message': 'Only students can reserve services'}), 403
 
     if not data:
         return jsonify({'message': 'No data provided'}), 400
@@ -670,6 +679,16 @@ def create_schedule(current_user):
         return jsonify({'message': 'Start time is required (format: 09:00)'}), 400
     if not data.get('end_time'):
         return jsonify({'message': 'End time is required (format: 17:00)'}), 400
+
+    existing = ProviderSchedule.query.filter_by(
+        provider_id=current_user.id,
+        day_of_week=data['day_of_week'],
+        start_time=data['start_time'],
+        end_time=data['end_time'],
+        is_active=True
+    ).first()
+    if existing:
+        return jsonify({'message': 'This schedule already exists'}), 409
     
     slot = ProviderSchedule(provider_id=current_user.id, day_of_week=data['day_of_week'],
         start_time=data['start_time'], end_time=data['end_time'], max_attendees=data.get('max_attendees', 1))

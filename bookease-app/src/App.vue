@@ -46,9 +46,9 @@ const views = {
   Dashboard
 };
 
-const currentView = ref(LoginForm);
 const selectedService = ref(null);
-const user = ref(null);
+const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
+const currentView = ref(user.value ? HomeView : LoginForm);
 
 function handleNavigation(view, payload) {
   if (payload?.user) user.value = payload.user;
@@ -67,12 +67,12 @@ function handleNavigation(view, payload) {
 
 function handleServiceSelection(service) {
   selectedService.value = service;
-  currentView.value = views.ServiceDetail;
-  console.log("navigating to : ", view);
+  currentView.value = views.BookingCalendar;
 }
 
 function logoutUser() {
-  // localStorage.removeItem('token');
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
   user.value = null;
   currentView.value = views.LoginForm;
 }

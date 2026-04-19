@@ -1,29 +1,47 @@
-
 <template>
 	<div class="BookingCalendar">
 		<h1 v-if="service">Book: {{ service.name }}</h1>
-		<p v-else>Loading service details...</p>
+		<p v-else>Select a service from Home first.</p>
+		<p v-if="message">{{ message }}</p>
+		<p v-if="error" class="error">{{ error }}</p>
+
+		<div v-if="service" class="bookingControls">
+			<label>
+				Provider ID
+				<input v-model.number="providerId" type="number" placeholder="Provider user ID" />
+			</label>
+			<label>
+				Start date
+				<input v-model="startDate" type="date" />
+			</label>
+			<label>
+				End date
+				<input v-model="endDate" type="date" />
+			</label>
+			<button @click="loadAvailability">Load Availability</button>
+		</div>
 
 		<FullCalendar :options="calendarOptions" />
 
-		<!-- Hold TImer -->
-		<HoldTimer
-			v-if="expiresAt"
-			:expiresAt="expiresAt"
+		<TimerHoldBanner
+			v-if="reservation?.reserved_until"
+			:timeLeft="reservationSecondsLeft"
 		/>
 
 		<div v-if="selectedSlot" class="selectedSlot">
-			Selected Slot: {{ selectedSlot}}
-			<!-- Time: {{ selectedSlotTime }} -->
+			<p>Selected schedule window: {{ selectedSlot.date }} {{ selectedSlot.start_time }}-{{ selectedSlot.end_time }}</p>
+			<label>
+				Appointment start time
+				<input v-model="selectedStartTime" type="datetime-local" />
+			</label>
+			<button @click="reserveSlot">Reserve 15-Minute Hold</button>
+			<button @click="bookSlot">Book Immediately</button>
 		</div>
 
-		<button
-			v-if="selectedSlot"
-			@click="confirmBooking"
-			class="confirmButton"
-		>
-			Confirm Booking
-		</button>
+		<div v-if="reservation">
+			<p>Reserved booking #{{ reservation.id }} until {{ formatDate(reservation.reserved_until) }}</p>
+			<button @click="confirmReservation">Confirm Reservation</button>
+		</div>
 	</div>
 </template>
 
@@ -32,102 +50,195 @@ import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
+import { apiRequest } from '../api';
 import TimerHoldBanner from '../components/TimerHoldBanner.vue';
-// import CalendarView from '../components/CalendarView.vue';
+
+const props = defineProps({
+	selectedService: Object,
+	user: Object
+});
+
+const service = computed(() => props.selectedService);
+const providerId = ref('');
+const startDate = ref(new Date().toISOString().slice(0, 10));
+const endDate = ref(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+const availability = ref([]);
+const bookedSlots = ref([]);
+const selectedSlot = ref(null);
+const selectedStartTime = ref('');
+const reservation = ref(null);
+const message = ref('');
+const error = ref('');
+
+const reservationSecondsLeft = computed(() => {
+	if (!reservation.value?.reserved_until) return 0;
+	return Math.max(0, Math.floor((parseUtcDate(reservation.value.reserved_until) - Date.now()) / 1000));
+});
 
 const calendarEvents = computed(() => {
-	return availability.value.map(slot => ({
-		id: slot.id,
-		title: holds.value[slot.id] ? "Held" : 'Available',
-		start: slot.date,
-		// end: slot.date,
-		color: holds.value[slot.id] ? "red" : "Green"
+	const availableEvents = availability.value.map((slot, index) => ({
+		id: `available-${index}`,
+		title: `Available ${slot.start_time}-${slot.end_time}`,
+		start: `${slot.date}T${slot.start_time}:00`,
+		end: `${slot.date}T${slot.end_time}:00`,
+		color: '#2f855a',
+		extendedProps: {
+			type: 'available',
+			slot
+		}
 	}));
+
+	const bookedEvents = bookedSlots.value.map(slot => ({
+		id: `booked-${slot.id}`,
+		title: `${slot.status} booking`,
+		start: slot.start_time,
+		end: slot.end_time,
+		color: '#c53030',
+		extendedProps: {
+			type: 'booked',
+			slot
+		}
+	}));
+
+	return [...availableEvents, ...bookedEvents];
 });
 
 const calendarOptions = computed(() => ({
 	plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
-	initialView: 'dayGridMonth',
-
+	initialView: 'timeGridWeek',
 	headerToolbar: {
 		left: 'prev,next today',
 		center: 'title',
 		right: 'dayGridMonth,timeGridWeek,timeGridDay'
 	},
-
 	events: calendarEvents.value,
-	selectable: true,
-
-	events: calendarEvents.value,
-
 	eventClick(info) {
-		handleSelectSlot(parseInt(info.event.id));
+		const type = info.event.extendedProps.type;
+		if (type !== 'available') {
+			setError(new Error('That slot is already booked or reserved.'));
+			return;
+		}
+
+		const eventStart = info.event.startStr.slice(0, 16);
+		selectedSlot.value = {
+			...info.event.extendedProps.slot,
+			start_time: eventStart
+		};
+		selectedStartTime.value = eventStart;
+		setMessage('Slot selected. You can reserve it or book immediately.');
 	},
-
-	slotMinTime: "15:00:00",
-	slotMaxTime: "45:00:00",
 	allDaySlot: false
-
 }));
 
-// temp service
-const service = ref({ id: 1, name: "Math Tutoring", duration: 60 });
-
-// Temp data
-const availability = ref([
-	{ id: 1, date: "2026-07-01T10:00:00" },
-	{ id: 2, date: "2026-07-01T11:00:00" },
-	{ id: 3, date: "2026-07-01T14:00:00" }
-]);
-
-const holds = ref({}); // { slotId: expiresAt }
-const selectedSlot = ref(null);
-const expiresAt = ref(null);
-
-
-
-function handleSelectSlot(slotId) {
-	selectedSlot.value = slotId;
-	
-	const expireTime = Date.now() + 15 * 60 * 1000; // 15 minutes from now
-	// holds.value[slotId] = expireTime;
-	expiresAt.value = expireTime;
-
-	holds.value[slotId] = true; // Mark as held
+function setMessage(text) {
+	message.value = text;
+	error.value = '';
 }
 
-function confirmBooking() {
-	if (!selectedSlot.value) return;
-
-	// Here you would send a request to your backend to confirm the booking
-	// For now, we'll just clear the hold and selected slot
-	alert(`Booking confirmed for slot ${selectedSlot.value}!`);
-
-	delete holds.value[selectedSlot.value];
-	selectedSlot.value = null;
-	expiresAt.value = null;
+function setError(err) {
+	error.value = err.message || String(err);
+	message.value = '';
 }
 
+function formatDate(value) {
+	return value ? parseUtcDate(value).toLocaleString() : '';
+}
+
+function parseUtcDate(value) {
+	if (!value) return null;
+	return new Date(value.endsWith('Z') ? value : `${value}Z`);
+}
+
+async function loadAvailability() {
+	if (!providerId.value) {
+		setError(new Error('Enter a provider ID first.'));
+		return;
+	}
+
+	try {
+		const data = await apiRequest(
+			`/api/availability/${providerId.value}?start_date=${startDate.value}&end_date=${endDate.value}`
+		);
+		availability.value = data.available_days || [];
+		bookedSlots.value = data.booked_slots || [];
+		selectedSlot.value = null;
+		reservation.value = null;
+		setMessage('Availability loaded.');
+	} catch (err) {
+		setError(err);
+	}
+}
+
+function bookingPayload() {
+	return {
+		service_id: service.value.id,
+		provider_id: providerId.value,
+		start_time: selectedStartTime.value
+	};
+}
+
+async function reserveSlot() {
+	if (!selectedSlot.value || !service.value) return;
+
+	try {
+		reservation.value = await apiRequest('/api/bookings/reserve', {
+			method: 'POST',
+			body: JSON.stringify(bookingPayload())
+		});
+		bookedSlots.value.push(reservation.value);
+		setMessage('Slot reserved. Confirm it before the hold expires.');
+	} catch (err) {
+		setError(err);
+	}
+}
+
+async function confirmReservation() {
+	if (!reservation.value) return;
+
+	try {
+		reservation.value = await apiRequest(`/api/bookings/${reservation.value.id}/confirm`, {
+			method: 'PUT'
+		});
+		setMessage('Reservation confirmed.');
+	} catch (err) {
+		setError(err);
+	}
+}
+
+async function bookSlot() {
+	if (!selectedSlot.value || !service.value) return;
+
+	try {
+		const booking = await apiRequest('/api/bookings', {
+			method: 'POST',
+			body: JSON.stringify(bookingPayload())
+		});
+		bookedSlots.value.push(booking);
+		selectedSlot.value = null;
+		setMessage('Booking created.');
+	} catch (err) {
+		setError(err);
+	}
+}
 </script>
 
 <style>
-.booking-page {
-  padding: 20px;
+.bookingControls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 16px;
 }
 
-.confirm-btn {
-  margin-top: 15px;
-  padding: 10px 20px;
-  background: #4caf50;
-  color: white;
-  border: none;
-  cursor: pointer;
-  border-radius: 6px;
+.bookingControls label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 }
 
-.selected-slot {
-  margin-top: 10px;
-  font-weight: bold;
+.selectedSlot {
+	margin-top: 10px;
+	font-weight: bold;
 }
 </style>

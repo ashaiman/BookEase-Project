@@ -10,7 +10,7 @@
 			<button @click="emit('navigate', 'HomeView')">Home</button>
 			<button @click="emit('navigate', 'Dashboard')">Dashboard</button>
 			<button @click="emit('navigate', 'BookingCalendar')">Calendar</button>
-			<button v-if="user" @click="emit('logout')">Logout ({{ user.name }})</button>
+			<button v-if="user" @click="emit('logout')">Logout ({{ user.username }})</button>
 			<button v-else @click="emit('navigate', 'LoginForm')">Login</button>
 		</div>
 	</nav>

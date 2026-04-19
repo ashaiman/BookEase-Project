@@ -1,19 +1,48 @@
-
 <template>
 	<div class="homeView">
-		<h2>BOOKEASE HOME</h2>
+		<h2>BookEase Home</h2>
+		<p v-if="user">Welcome, {{ user.username }}.</p>
+		<p v-else>Please log in to use BookEase.</p>
+		<p v-if="message">{{ message }}</p>
+		<p v-if="error" class="error">{{ error }}</p>
 
-		<!-- Students view -->
-		<div v-if="user?.role !== 'admin'">
+		<section>
+			<h3>Services</h3>
+			<div>
+				<label>Filter by category</label>
+				<input v-model="categoryFilter" placeholder="academic, career, wellbeing" />
+				<button @click="loadServices">Search</button>
+				<button @click="clearFilter">Clear</button>
+			</div>
+
+			<p v-if="loadingServices">Loading services...</p>
+			<p v-else-if="services.length === 0">No services found.</p>
+			<ul v-else class="sessionList">
+				<li v-for="service in services" :key="service.id" class="sessionItem">
+					<div class="sessionInfo">
+						<h3>{{ service.name }}</h3>
+						<p>{{ service.description || 'No description yet.' }}</p>
+						<p>{{ service.category || 'uncategorized' }} - {{ service.duration }} minutes</p>
+					</div>
+					<button @click="$emit('navigate', 'BookingCalendar', { service })">
+						Book
+					</button>
+				</li>
+			</ul>
+		</section>
+
+		<section v-if="user">
 			<h3>Your Past Sessions</h3>
+			<button @click="loadHistory">Refresh History</button>
 
-			<p v-if="loading">Loading past sessions...</p>
-
+			<p v-if="loadingHistory">Loading past sessions...</p>
+			<p v-else-if="pastSessions.length === 0">No past sessions yet.</p>
 			<ul v-else class="sessionList">
 				<li v-for="session in pastSessions" :key="session.id" class="sessionItem">
 					<div class="sessionInfo">
-						<h3>{{ session.serviceName }}</h3>
-						<p>{{ session.date }} {{ session.time }}</p>
+						<h3>Booking #{{ session.id }}</h3>
+						<p>Service #{{ session.service_id }}</p>
+						<p>{{ formatDate(session.start_time) }}</p>
 					</div>
 
 					<button @click="openReview(session)">
@@ -21,29 +50,22 @@
 					</button>
 				</li>
 			</ul>
-		</div>
+		</section>
 
-		<!-- Admin view -->
-		<div v-else>
-			<!-- Admin Homepage -->
-			<p>Welcome, {{ user?.name }}!</p>
-		</div>
-
-		<!-- Review Modal -->
 		<div v-if="showReview" class="modalOverlay">
 			<div class="modalBox">
-				<h3>Leave a Review for {{ reviewForm.serviceName }}</h3>
+				<h3>Leave a Review for Booking #{{ reviewForm.booking_id }}</h3>
 				<form @submit.prevent="submitReview">
 					<div>
 						<label>Rating:</label>
-						<select v-model="reviewForm.rating">
+						<select v-model.number="reviewForm.rating" required>
 							<option value="" disabled>Select rating</option>
 							<option v-for="n in 5" :key="n" :value="n">{{ n }} Stars</option>
 						</select>
 					</div>
 					<div>
 						<label>Comments:</label>
-						<textarea v-model="reviewForm.comments" placeholder="Write your review here..."></textarea>
+						<textarea v-model="reviewForm.comment" placeholder="Write your review here..."></textarea>
 					</div>
 					<div class="modalActions">
 						<button type="button" @click="showReview = false">Cancel</button>
@@ -56,87 +78,100 @@
 </template>
 
 <script setup>
-
-import {ref, computed, onMounted} from 'vue';
+import { onMounted, ref } from 'vue';
+import { apiRequest } from '../api';
 import "../assets/styles/home.css";
 
 const props = defineProps({
 	user: Object
 });
 
-// PLACEHOLDER DATA
-const pastSessions = ref([
-	{ id: 1, serviceName: "Interview Practice", date: "2026-04-01", time: "10:00 AM" },
-	{ id: 2, serviceName: "Resume Review", date: "2026-04-10", time: "2:00 PM" },
-]);
+defineEmits(['navigate']);
 
-// Review Modal State
-const loading = ref(false);
+const services = ref([]);
+const pastSessions = ref([]);
+const loadingServices = ref(false);
+const loadingHistory = ref(false);
 const showReview = ref(false);
+const message = ref('');
+const error = ref('');
+const categoryFilter = ref('');
 
 const reviewForm = ref({
-	sessionId: null,
-	serviceName: '',
+	booking_id: null,
+	service_id: null,
 	rating: '',
-	comments: ''
+	comment: ''
 });
 
-// Loading cycle
-onMounted(async () => {
-	loading.value = true;
-	// ASK API
-	loading.value = false;
-});
+function setMessage(text) {
+	message.value = text;
+	error.value = '';
+}
 
+function setError(err) {
+	error.value = err.message || String(err);
+	message.value = '';
+}
 
-// Open review modal
+function formatDate(value) {
+	return new Date(value).toLocaleString();
+}
+
+async function loadServices() {
+	loadingServices.value = true;
+	try {
+		const query = categoryFilter.value ? `?category=${encodeURIComponent(categoryFilter.value)}` : '';
+		services.value = await apiRequest(`/api/services${query}`);
+	} catch (err) {
+		setError(err);
+	} finally {
+		loadingServices.value = false;
+	}
+}
+
+function clearFilter() {
+	categoryFilter.value = '';
+	loadServices();
+}
+
+async function loadHistory() {
+	if (!props.user) return;
+	loadingHistory.value = true;
+	try {
+		pastSessions.value = await apiRequest('/api/bookings/history');
+	} catch (err) {
+		setError(err);
+	} finally {
+		loadingHistory.value = false;
+	}
+}
+
 function openReview(session) {
 	reviewForm.value = {
-		sessionId: session.id,
-		serviceName: session.serviceName,
+		booking_id: session.id,
+		service_id: session.service_id,
 		rating: '',
-		comments: ''
+		comment: ''
 	};
 	showReview.value = true;
 }
 
 async function submitReview() {
-	console.log("Submitting review:", reviewForm.value);
-	// ASK API to submit reviewForm.value
-
-	alert(`Review submitted for session ${reviewForm.value.sessionId} with rating ${reviewForm.value.rating} and comments: ${reviewForm.value.comments}`);
-	showReview.value = false;
-}
-
-
-</script>
-
-<!-- <script>
-import "../assets/styles/home.css";
-
-export default {
-	data() {
-		return {
-			categories: [
-				{
-					name: "Career Services",
-					services: [
-						{ id: 0, name: "Interview Practice", description: "Get ready for your next big interview with our comprehensive practice sessions." },
-						{ id: 1, name: "Resume Review", description: "Enhance your resume with expert feedback and personalized suggestions." },
-						{ id: 2, name: "Career Coaching", description: "Receive personalized career guidance to help you achieve your professional goals." },
-					]
-				},
-				{
-					name: "Academic Support",
-					services: [
-						{ id: 3, name: "Tutoring", description: "Get personalized tutoring in a variety of subjects to help you excel academically." },
-						{ id: 4, name: "Study Groups", description: "Join or create study groups to collaborate and learn with your peers." },
-						{ id: 5, name: "Writing Assistance", description: "Improve your writing skills with expert feedback and guidance on your essays and papers." },
-					]
-				}
-			]	
-		}
+	try {
+		await apiRequest('/api/feedback', {
+			method: 'POST',
+			body: JSON.stringify(reviewForm.value)
+		});
+		showReview.value = false;
+		setMessage('Review submitted.');
+	} catch (err) {
+		setError(err);
 	}
 }
 
-</script> -->
+onMounted(() => {
+	loadServices();
+	loadHistory();
+});
+</script>
