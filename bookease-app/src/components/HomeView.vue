@@ -1,42 +1,69 @@
 <template>
 	<div class="homeView">
-		<h2>BookEase Home</h2>
-		<p v-if="user">Welcome, {{ user.username }}.</p>
-		<p v-else>Please log in to use BookEase.</p>
-		<p v-if="message">{{ message }}</p>
-		<p v-if="error" class="error">{{ error }}</p>
-
-		<section>
-			<h3>Services</h3>
+		<section class="hero">
 			<div>
-				<label>Filter by category</label>
-				<input v-model="categoryFilter" placeholder="academic, career, wellbeing" />
-				<button @click="loadServices">Search</button>
-				<button @click="clearFilter">Clear</button>
+				<h2>BookEase Home</h2>
+				<p v-if="user">Welcome back, {{ user.username }}. Book tutoring, career, and wellbeing support in a few steps.</p>
+				<p v-else>Please log in to browse services and manage your sessions.</p>
+			</div>
+			<div class="heroBadge">
+				<span>{{ services.length }}</span>
+				<p>available services</p>
+			</div>
+		</section>
+
+		<div v-if="message" class="statusBanner">{{ message }}</div>
+		<div v-if="error" class="statusBanner errorBanner">{{ error }}</div>
+
+		<section class="servicesPanel">
+			<div class="sectionHeader">
+				<div>
+					<h3>Browse Services</h3>
+					<p>Choose a service, then pick a provider and time on the booking page.</p>
+				</div>
+				<div class="filterRow">
+					<label>
+						<span>Category</span>
+						<input v-model="categoryFilter" placeholder="academic, career, wellbeing" />
+					</label>
+					<button @click="loadServices">Search</button>
+					<button class="secondaryButton" @click="clearFilter">Clear</button>
+				</div>
 			</div>
 
-			<p v-if="loadingServices">Loading services...</p>
-			<p v-else-if="services.length === 0">No services found.</p>
+			<p v-if="loadingServices" class="emptyState">Loading services...</p>
+			<p v-else-if="services.length === 0" class="emptyState">No services found for that category.</p>
 			<ul v-else class="sessionList">
 				<li v-for="service in services" :key="service.id" class="sessionItem">
 					<div class="sessionInfo">
 						<h3>{{ service.name }}</h3>
 						<p>{{ service.description || 'No description yet.' }}</p>
-						<p>{{ service.category || 'uncategorized' }} - {{ service.duration }} minutes</p>
+						<div class="tagRow">
+							<span class="tag">{{ service.category || 'uncategorized' }}</span>
+							<span class="tag">{{ service.duration }} minutes</span>
+						</div>
 					</div>
-					<button @click="$emit('navigate', 'BookingCalendar', { service })">
-						Book
-					</button>
+					<div class="serviceActions">
+						<p>Choose a provider and time next.</p>
+						<button @click="$emit('navigate', 'BookingCalendar', { service })">
+							Book Service
+						</button>
+					</div>
 				</li>
 			</ul>
 		</section>
 
 		<section v-if="user">
-			<h3>Your Past Sessions</h3>
-			<button @click="loadHistory">Refresh History</button>
+			<div class="sectionHeader">
+				<div>
+					<h3>Your Past Sessions</h3>
+					<p>Leave feedback after a completed appointment.</p>
+				</div>
+				<button class="secondaryButton" @click="loadHistory">Refresh History</button>
+			</div>
 
-			<p v-if="loadingHistory">Loading past sessions...</p>
-			<p v-else-if="pastSessions.length === 0">No past sessions yet.</p>
+			<p v-if="loadingHistory" class="emptyState">Loading past sessions...</p>
+			<p v-else-if="pastSessions.length === 0" class="emptyState">No past sessions yet.</p>
 			<ul v-else class="sessionList">
 				<li v-for="session in pastSessions" :key="session.id" class="sessionItem">
 					<div class="sessionInfo">
