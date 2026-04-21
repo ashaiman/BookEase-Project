@@ -1,24 +1,55 @@
 <template>
 	<div class="BookingCalendar">
-		<h1 v-if="service">Book: {{ service.name }}</h1>
-		<p v-else>Select a service from Home first.</p>
-		<p v-if="message">{{ message }}</p>
-		<p v-if="error" class="error">{{ error }}</p>
+		<section class="bookingHero" v-if="service">
+			<div>
+				<h1>{{ service.name }}</h1>
+				<p>{{ service.description || 'Choose a provider, load availability, and select a start time.' }}</p>
+			</div>
+			<div class="heroMeta">
+				<span class="tag">{{ service.category || 'uncategorized' }}</span>
+				<span class="tag">{{ service.duration }} minutes</span>
+			</div>
+		</section>
+		<p v-else class="emptyState">Select a service from Home first.</p>
+		<div v-if="message" class="statusBanner">{{ message }}</div>
+		<div v-if="error" class="statusBanner errorBanner">{{ error }}</div>
 
 		<div v-if="service" class="bookingControls">
-			<label>
-				Provider ID
-				<input v-model.number="providerId" type="number" placeholder="Provider user ID" />
-			</label>
-			<label>
-				Start date
-				<input v-model="startDate" type="date" />
-			</label>
-			<label>
-				End date
-				<input v-model="endDate" type="date" />
-			</label>
-			<button @click="loadAvailability">Load Availability</button>
+			<div class="stepCard">
+				<span class="stepNumber">1</span>
+				<div>
+					<h3>Choose a provider</h3>
+					<p>Select a provider who offers this service.</p>
+				</div>
+				<label>
+					<span>Provider</span>
+					<select v-model="providerId">
+						<option value="">Select a provider</option>
+						<option v-for="provider in providers" :key="provider.id" :value="provider.id">
+							{{ provider.username }} (ID {{ provider.id }})
+						</option>
+					</select>
+				</label>
+			</div>
+
+			<div class="stepCard">
+				<span class="stepNumber">2</span>
+				<div>
+					<h3>Load availability</h3>
+					<p>Choose a date range that includes your desired appointment day.</p>
+				</div>
+				<div class="dateFields">
+					<label>
+						<span>Start date</span>
+						<input v-model="startDate" type="date" />
+					</label>
+					<label>
+						<span>End date</span>
+						<input v-model="endDate" type="date" />
+					</label>
+				</div>
+				<button @click="loadAvailability">Load Availability</button>
+			</div>
 		</div>
 
 		<FullCalendar :options="calendarOptions" />
@@ -29,16 +60,21 @@
 		/>
 
 		<div v-if="selectedSlot" class="selectedSlot">
-			<p>Selected schedule window: {{ selectedSlot.date }} {{ selectedSlot.start_time }}-{{ selectedSlot.end_time }}</p>
+			<div>
+				<h3>3. Choose an appointment time</h3>
+				<p>Selected window: {{ selectedSlot.date }} {{ selectedSlot.start_time }}-{{ selectedSlot.end_time }}</p>
+			</div>
 			<label>
-				Appointment start time
+				<span>Appointment start time</span>
 				<input v-model="selectedStartTime" type="datetime-local" />
 			</label>
-			<button @click="reserveSlot">Reserve 15-Minute Hold</button>
-			<button @click="bookSlot">Book Immediately</button>
+			<div class="actionRow">
+				<button class="secondaryButton" @click="reserveSlot">Reserve 15-Minute Hold</button>
+				<button @click="bookSlot">Book Immediately</button>
+			</div>
 		</div>
 
-		<div v-if="reservation">
+		<div v-if="reservation" class="reservationCard">
 			<p>Reserved booking #{{ reservation.id }} until {{ formatDate(reservation.reserved_until) }}</p>
 			<button @click="confirmReservation">Confirm Reservation</button>
 		</div>
@@ -50,7 +86,7 @@ import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { apiRequest } from '../api';
 import TimerHoldBanner from '../components/TimerHoldBanner.vue';
 
@@ -61,6 +97,7 @@ const props = defineProps({
 
 const service = computed(() => props.selectedService);
 const providerId = ref('');
+const providers = ref([]);
 const startDate = ref(new Date().toISOString().slice(0, 10));
 const endDate = ref(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
 const availability = ref([]);
@@ -152,7 +189,7 @@ function parseUtcDate(value) {
 
 async function loadAvailability() {
 	if (!providerId.value) {
-		setError(new Error('Enter a provider ID first.'));
+		setError(new Error('Choose a provider first.'));
 		return;
 	}
 
@@ -170,10 +207,23 @@ async function loadAvailability() {
 	}
 }
 
+async function loadProviders() {
+	if (!service.value?.id) return;
+
+	try {
+		providers.value = await apiRequest(`/api/services/${service.value.id}/providers`);
+		if (providers.value.length === 1) {
+			providerId.value = providers.value[0].id;
+		}
+	} catch (err) {
+		setError(err);
+	}
+}
+
 function bookingPayload() {
 	return {
 		service_id: service.value.id,
-		provider_id: providerId.value,
+		provider_id: Number(providerId.value),
 		start_time: selectedStartTime.value
 	};
 }
@@ -221,17 +271,33 @@ async function bookSlot() {
 		setError(err);
 	}
 }
+
+watch(
+	() => service.value?.id,
+	() => {
+		providers.value = [];
+		providerId.value = '';
+		selectedSlot.value = null;
+		selectedStartTime.value = '';
+		availability.value = [];
+		bookedSlots.value = [];
+		reservation.value = null;
+		loadProviders();
+	},
+	{ immediate: true }
+);
 </script>
 
 <style>
 .bookingControls {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 12px;
-	margin-bottom: 18px;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+	margin-bottom: 22px;
 }
 
-.bookingControls label {
+.bookingControls label,
+.selectedSlot label {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
@@ -239,8 +305,24 @@ async function bookSlot() {
 	color: #5d4a53;
 }
 
+.bookingHero {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20px;
+	background: #ffffff;
+	border: 1px solid #ecd6de;
+	border-radius: 16px;
+	box-shadow: 0 16px 32px rgba(198, 120, 145, 0.1);
+	padding: 22px 24px;
+}
+
+.bookingHero h1 {
+	margin-bottom: 0.35rem;
+}
+
+.stepCard,
 .selectedSlot {
-	margin-top: 18px;
 	padding: 18px 20px;
 	background: #ffffff;
 	border: 1px solid #ecd6de;
@@ -249,6 +331,62 @@ async function bookSlot() {
 	display: grid;
 	gap: 12px;
 	font-weight: 600;
+}
+
+.stepCard {
+	display: grid;
+	gap: 12px;
+	align-content: start;
+}
+
+.stepCard h3,
+.selectedSlot h3 {
+	margin-bottom: 0.25rem;
+}
+
+.stepCard p,
+.selectedSlot p,
+.bookingHero p,
+.reservationCard p {
+	margin: 0;
+	color: #6f5e66;
+}
+
+.stepNumber {
+	width: 34px;
+	height: 34px;
+	border-radius: 999px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: #ef9fb4;
+	color: white;
+	font-weight: 700;
+}
+
+.dateFields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.heroMeta,
+.actionRow {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.reservationCard {
+	background: #ffffff;
+	border: 1px solid #ecd6de;
+	border-radius: 16px;
+	padding: 18px 20px;
+	box-shadow: 0 16px 32px rgba(198, 120, 145, 0.1);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
 }
 
 .BookingCalendar {
@@ -261,5 +399,38 @@ async function bookSlot() {
 .BookingCalendar h1,
 .BookingCalendar > p {
 	text-align: center;
+}
+
+.secondaryButton {
+	background: #f7dbe4;
+	color: #8b4f63;
+}
+
+.secondaryButton:hover {
+	background: #efc9d5;
+}
+
+.tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.45rem 0.8rem;
+	border-radius: 999px;
+	background: #fff1f5;
+	color: #8b4f63;
+	font-size: 0.92rem;
+	font-weight: 600;
+}
+
+@media (max-width: 900px) {
+	.bookingControls,
+	.dateFields {
+		grid-template-columns: 1fr;
+	}
+
+	.bookingHero,
+	.reservationCard {
+		flex-direction: column;
+		align-items: stretch;
+	}
 }
 </style>

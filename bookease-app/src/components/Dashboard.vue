@@ -1,27 +1,50 @@
 <template>
 	<div class="dashboard" v-if="user">
-		<h2>Dashboard</h2>
-		<p>{{ roleLabel }}</p>
-		<p>Your user ID: {{ user.id }}</p>
-		<p v-if="message">{{ message }}</p>
-		<p v-if="error" class="error">{{ error }}</p>
+		<section class="dashboardHero">
+			<div>
+				<h2>Dashboard</h2>
+				<p>{{ roleLabel }}</p>
+			</div>
+			<div class="heroMeta">
+				<span class="idPill">User ID {{ user.id }}</span>
+			</div>
+		</section>
+		<p v-if="message" class="statusBanner">{{ message }}</p>
+		<p v-if="error" class="statusBanner errorBanner">{{ error }}</p>
 
 		<div v-if="user.role === 'admin' || user.role === 'provider'">
-			<h3>Services</h3>
-			<button @click="showCreate = true">Create Service</button>
-			<button @click="loadServices">Refresh Services</button>
+			<div class="sectionHeader">
+				<div>
+					<h3>Services</h3>
+					<p>Create, edit, and manage service offerings.</p>
+				</div>
+				<div class="actionRow">
+					<button @click="showCreate = true">Create Service</button>
+					<button class="secondaryButton" @click="loadServices">Refresh Services</button>
+				</div>
+			</div>
 
 			<ul>
 				<li v-for="service in services" :key="service.id">
-					{{ service.name }} - {{ service.category || 'no category' }} - {{ service.duration }} mins
-					<button @click="startEdit(service)">Edit</button>
-					<button @click="deleteService(service.id)">Delete</button>
+					<div class="listCopy">
+						<strong>{{ service.name }}</strong>
+						<span>{{ service.category || 'no category' }} • {{ service.duration }} mins</span>
+					</div>
+					<div class="listActions">
+						<button class="secondaryButton" @click="startEdit(service)">Edit</button>
+						<button @click="deleteService(service.id)">Delete</button>
+					</div>
 				</li>
 			</ul>
 		</div>
 
 		<div v-if="user.role === 'provider'">
-			<h3>Provider Schedule</h3>
+			<div class="sectionHeader">
+				<div>
+					<h3>Provider Schedule</h3>
+					<p>Set when students are allowed to book.</p>
+				</div>
+			</div>
 			<div class="modal">
 				<select v-model.number="scheduleForm.day_of_week">
 					<option :value="0">Monday</option>
@@ -38,24 +61,36 @@
 			</div>
 			<ul>
 				<li v-for="slot in schedule" :key="slot.id">
-					Day {{ slot.day_of_week }}: {{ slot.start_time }} - {{ slot.end_time }}
-					<button @click="deleteSchedule(slot.id)">Delete</button>
+					<div class="listCopy">
+						<strong>{{ dayLabel(slot.day_of_week) }}</strong>
+						<span>{{ slot.start_time }} - {{ slot.end_time }}</span>
+					</div>
+					<div class="listActions">
+						<button @click="deleteSchedule(slot.id)">Delete</button>
+					</div>
 				</li>
 			</ul>
 		</div>
 
 		<div>
-			<h3>{{ user.role === 'provider' ? 'Incoming Bookings' : 'Your Upcoming Bookings' }}</h3>
-			<button @click="loadUpcoming">Refresh Bookings</button>
-			<p v-if="loadingBookings">Loading bookings...</p>
-			<p v-else-if="upcoming.length === 0">No upcoming bookings.</p>
+			<div class="sectionHeader">
+				<div>
+					<h3>{{ user.role === 'provider' ? 'Incoming Bookings' : 'Your Upcoming Bookings' }}</h3>
+					<p>{{ user.role === 'provider' ? 'See what students have booked with you.' : 'Manage the sessions you have coming up.' }}</p>
+				</div>
+				<button class="secondaryButton" @click="loadUpcoming">Refresh Bookings</button>
+			</div>
+			<p v-if="loadingBookings" class="emptyState">Loading bookings...</p>
+			<p v-else-if="upcoming.length === 0" class="emptyState">No upcoming bookings.</p>
 			<ul v-else>
 				<li v-for="booking in upcoming" :key="booking.id">
-					Booking #{{ booking.id }} -
-					Service #{{ booking.service_id }} -
-					{{ formatDate(booking.start_time) }} -
-					{{ booking.status }}
-					<button @click="cancelBooking(booking.id)">Cancel</button>
+					<div class="listCopy">
+						<strong>Booking #{{ booking.id }}</strong>
+						<span>Service #{{ booking.service_id }} • {{ formatDate(booking.start_time) }} • {{ booking.status }}</span>
+					</div>
+					<div class="listActions">
+						<button @click="cancelBooking(booking.id)">Cancel</button>
+					</div>
 				</li>
 			</ul>
 		</div>
@@ -151,6 +186,10 @@ function setError(err) {
 
 function formatDate(value) {
 	return new Date(value).toLocaleString();
+}
+
+function dayLabel(day) {
+	return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][day] || `Day ${day}`;
 }
 
 async function loadServices() {

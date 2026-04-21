@@ -140,10 +140,32 @@ def get_services():
     from models import Service
     category = request.args.get('category')
     if category:
-        services = Service.query.filter_by(category=category).all()
+        services = Service.query.filter(
+            db.func.lower(Service.category) == category.lower()
+        ).all()
     else:
         services = Service.query.all()
     return jsonify([service.to_dict() for service in services])
+
+@app.route('/api/services/<int:service_id>/providers', methods=['GET'])
+def get_service_providers(service_id):
+    from models import User, ProviderService
+
+    providers = User.query.join(
+        ProviderService, ProviderService.provider_id == User.id
+    ).filter(
+        ProviderService.service_id == service_id,
+        User.role == 'provider'
+    ).all()
+
+    return jsonify([
+        {
+            'id': provider.id,
+            'username': provider.username,
+            'email': provider.email
+        }
+        for provider in providers
+    ]), 200
 
 
 @app.route('/api/services', methods=['POST'])
