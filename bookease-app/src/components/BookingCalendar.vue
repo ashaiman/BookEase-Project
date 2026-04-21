@@ -225,20 +225,41 @@ async function bookSlot() {
 
 <style>
 .bookingControls {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10px;
-	margin-bottom: 16px;
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 12px;
+	margin-bottom: 18px;
 }
 
 .bookingControls label {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
+	font-weight: 600;
+	color: #5d4a53;
 }
 
 .selectedSlot {
-	margin-top: 10px;
-	font-weight: bold;
+	margin-top: 18px;
+	padding: 18px 20px;
+	background: #ffffff;
+	border: 1px solid #ecd6de;
+	border-radius: 16px;
+	box-shadow: 0 16px 32px rgba(198, 120, 145, 0.1);
+	display: grid;
+	gap: 12px;
+	font-weight: 600;
+}
+
+.BookingCalendar {
+	max-width: 1120px;
+	margin: 0 auto;
+	display: grid;
+	gap: 18px;
+}
+
+.BookingCalendar h1,
+.BookingCalendar > p {
+	text-align: center;
 }
 </style>

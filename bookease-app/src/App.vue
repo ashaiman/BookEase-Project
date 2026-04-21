@@ -147,8 +147,4 @@ function logoutUser() {
 .page {
   padding-top: 50px;
 }
-
-body {
-  margin: 0;
-}
 </style>

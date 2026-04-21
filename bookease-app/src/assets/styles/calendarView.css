@@ -1,63 +1,34 @@
-.booking-page {
-	padding: 20px;
-}
-
-/* Calendar layout fix */
 .fc {
-	max-width: 100%;
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #ecd6de;
+  box-shadow: 0 18px 36px rgba(198, 120, 145, 0.1);
+  padding: 14px;
 }
 
-/* Side panel */
-.event-panel {
-	margin-top: 20px;
-	padding: 15px;
-	background: white;
-	border-radius: 10px;
-	box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-	max-width: 400px;
+.fc .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 1rem;
 }
 
-/* Buttons */
-.event-panel button {
-	margin-right: 10px;
-	margin-top: 10px;
-	padding: 8px 12px;
-	border: none;
-	border-radius: 6px;
-	cursor: pointer;
-	background: #4a6cf7;
-	color: white;
+.fc .fc-button {
+  background: #ef9fb4;
+  border: none;
+  border-radius: 8px;
+  box-shadow: none;
 }
 
-.event-panel button:hover {
-	background: #3a57d6;
+.fc .fc-button:hover,
+.fc .fc-button.fc-button-active {
+  background: #d87b95;
 }
 
-.close-btn {
-	background: #999 !important;
+.fc .fc-col-header-cell-cushion,
+.fc .fc-timegrid-axis-cushion,
+.fc .fc-timegrid-slot-label-cushion {
+  color: #6e5a62;
 }
 
-.modalOverlay {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0,0,0,0.5);
-	display: flex;
-	justify-content: center;
-	align-items: center;
-}
-
-.modalBox {
-	background: white;
-	padding: 20px;
-	border-radius: 10px;
-	width: 300px;
-}
-
-.modalActions {
-	display: flex;
-	justify-content: space-between;
-	margin-top: 10px;
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border-color: #ecd6de;
 }
