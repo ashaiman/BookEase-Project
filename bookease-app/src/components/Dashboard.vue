@@ -86,7 +86,10 @@
 				<li v-for="booking in upcoming" :key="booking.id">
 					<div class="listCopy">
 						<strong>Booking #{{ booking.id }}</strong>
-						<span>Service #{{ booking.service_id }} • {{ formatDate(booking.start_time) }} • {{ booking.status }}</span>
+						<span>
+							<template v-if="user.role === 'provider'">{{ booking.customer_username || `User #${booking.user_id}` }} • </template>
+							{{ booking.service_name || `Service #${booking.service_id}` }} • {{ formatDate(booking.start_time) }} • {{ booking.status }}
+						</span>
 					</div>
 					<div class="listActions">
 						<button @click="cancelBooking(booking.id)">Cancel</button>
