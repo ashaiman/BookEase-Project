@@ -33,11 +33,10 @@ db.init_app(app)
 # Import models and routes after db initialization
 from models import *
 from routes import *
+
 with app.app_context():
     db.create_all()
     db.session.commit()
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(debug=True, port=5001)
