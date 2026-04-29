@@ -35,7 +35,7 @@ from models import *
 from routes import *
 
 with app.app_context():
-    import models 
+    from models import User
     db.create_all()
     db.session.commit()
 
