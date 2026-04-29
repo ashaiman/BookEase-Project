@@ -9,7 +9,6 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
-
 # Ensure instance folder exists
 instance_path = os.path.join(os.path.dirname(__file__), 'instance')
 os.makedirs(instance_path, exist_ok=True)
