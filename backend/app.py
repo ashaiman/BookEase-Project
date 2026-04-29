@@ -37,6 +37,7 @@ from routes import *
 with app.app_context():
     from models import User
     db.create_all()
+    print(f'Registered Tables: {db.metadata.tables.keys()}')
     db.session.commit()
 
 if __name__ == '__main__':
