@@ -16,18 +16,25 @@ os.makedirs(instance_path, exist_ok=True)
 # Database configuration using absolute path
 #db_path = os.path.join(instance_path, 'bookease.db')
 #db_uri = os.environ.get('DATABASE_URL', f'sqlite:///{db_path}')
+db_uri = os.environ.get('DATABASE_URL')
 #db_uri = f'sqlite:///{db_path}'
-db_uri = f'sqlite:///bookease.db'
+if db_uri:
+    if db_uri.startswith("postgres://"):
+        db_uri = db_uri.replace("postgres://", "postgresql://", 1)
+else: 
+    db_path = os.path.join(instance_path, 'bookease.db')
+    db_uri = f'sqlite:///{db_path}'
+        
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 #print(f"Using database: {db_path}")
 db.init_app(app)
-with app.app_context():
-    db.create_all()
 
 # Import models and routes after db initialization
 from models import *
 from routes import *
+with app.app_context():
+    db.create_all()
 
 if __name__ == '__main__':
     with app.app_context():
