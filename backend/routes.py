@@ -95,6 +95,7 @@ def register():
         return jsonify({'message': 'Email already exists'}), 409
     except Exception as e:
         db.session.rollback()
+        print(f'DEBUG ERROR: {str(e)}')
         return jsonify({'message': 'Server Error'}), 500
     return jsonify({'message': 'User created successfully'}), 201
 
