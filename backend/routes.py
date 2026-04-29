@@ -69,6 +69,9 @@ def register():
     from models import User
     data = request.get_json()
 
+    existing_user = User.query.filter_by(email=data['email']).first()
+    if existing_user:
+        return jsonify({'message': 'Email already registered'}), 400
     if not data:
         return jsonify({'message': 'No data provided'}), 400
     if not data.get('username'):
@@ -86,8 +89,12 @@ def register():
         return jsonify({'message': 'Username already exists'}), 400
     user = User(username=data['username'], email=data['email'], role=role)
     user.set_password(data['password'])
-    db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.add(user)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Registration Failed'}), 400
     return jsonify({'message': 'User created successfully'}), 201
 
 @app.route('/api/auth/login', methods=['POST'])
