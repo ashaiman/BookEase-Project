@@ -4,6 +4,7 @@ from extensions import db
 from datetime import datetime, timedelta
 from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.exc import IntegrityError
 import jwt
 import os
 
@@ -92,9 +93,12 @@ def register():
     try:
         db.session.add(user)
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'message': 'Email already exists'}), 409
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': 'Registration Failed'}), 400
+        return jsonify({'message': 'Server Error'}), 500
     return jsonify({'message': 'User created successfully'}), 201
 
 @app.route('/api/auth/login', methods=['POST'])
