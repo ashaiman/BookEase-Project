@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.exc import IntegrityError
+from models import *
 import jwt
 import os
 
@@ -67,12 +68,8 @@ def token_required(f):
 # User Authentication Routes
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    from models import User
     data = request.get_json()
 
-    existing_user = User.query.filter_by(email=data['email']).first()
-    if existing_user:
-        return jsonify({'message': 'Email already registered'}), 400
     if not data:
         return jsonify({'message': 'No data provided'}), 400
     if not data.get('username'):
